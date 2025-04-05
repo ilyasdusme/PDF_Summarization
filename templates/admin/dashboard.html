@@ -122,7 +122,7 @@
                                 <th>ID</th>
                                 <th>Dosya Adı</th>
                                 <th>Orijinal Ad</th>
-                                <th>Yüklenme Tarihi</th>
+                                <th>Yükleme Tarihi</th>
                                 <th>Boyut</th>
                                 <th>Özet Uzunluğu</th>
                             </tr>
@@ -133,9 +133,9 @@
                                 <td>{{ pdf.id }}</td>
                                 <td>{{ pdf.filename }}</td>
                                 <td>{{ pdf.original_filename }}</td>
-                                <td>{{ pdf.upload_date.strftime('%d.%m.%Y %H:%M') }}</td>
-                                <td>{{ pdf.file_size }}</td>
-                                <td>{{ pdf.summary_length }}</td>
+                                <td>{{ pdf.upload_date }}</td>
+                                <td>{{ pdf.file_size }} bytes</td>
+                                <td>{{ pdf.summary_length }}%</td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -160,7 +160,7 @@
                             <tr>
                                 <td>{{ page.page_name }}</td>
                                 <td>{{ page.visit_count }}</td>
-                                <td>{{ page.last_visit.strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td>{{ page.last_visit }}</td>
                             </tr>
                             {% endfor %}
                         </tbody>

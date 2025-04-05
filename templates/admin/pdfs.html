@@ -71,6 +71,7 @@
             
             <!-- PDF List -->
             <div class="admin-section">
+                <h2>PDF'ler</h2>
                 <div class="admin-table-container">
                     <table class="admin-table">
                         <thead>
@@ -78,7 +79,7 @@
                                 <th>ID</th>
                                 <th>Dosya Adı</th>
                                 <th>Orijinal Ad</th>
-                                <th>Yüklenme Tarihi</th>
+                                <th>Yükleme Tarihi</th>
                                 <th>Boyut</th>
                                 <th>Özet Uzunluğu</th>
                                 <th>İşlemler</th>
@@ -90,17 +91,12 @@
                                 <td>{{ pdf.id }}</td>
                                 <td>{{ pdf.filename }}</td>
                                 <td>{{ pdf.original_filename }}</td>
-                                <td>{{ pdf.upload_date.strftime('%d.%m.%Y %H:%M') }}</td>
-                                <td>{{ pdf.file_size }}</td>
-                                <td>{{ pdf.summary_length }}</td>
+                                <td>{{ pdf.upload_date }}</td>
+                                <td>{{ pdf.file_size }} bytes</td>
+                                <td>{{ pdf.summary_length }}%</td>
                                 <td>
-                                    <form method="POST" action="{{ url_for('admin_delete_pdf', pdf_id=pdf.id) }}" 
-                                          onsubmit="return confirm('Bu PDF\'i silmek istediğinizden emin misiniz?');" 
-                                          style="display: inline;">
-                                        <button type="submit" class="admin-btn admin-btn-danger">
-                                            <i class="fas fa-trash"></i>
-                                            Sil
-                                        </button>
+                                    <form action="{{ url_for('delete_pdf', pdf_id=pdf.id) }}" method="POST" onsubmit="return confirm('Bu PDF\'i silmek istediğinizden emin misiniz?');">
+                                        <button type="submit" class="btn btn-danger">Sil</button>
                                     </form>
                                 </td>
                             </tr>

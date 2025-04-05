@@ -174,126 +174,152 @@ def extract_text_from_pdf(pdf_path):
     try:
         with open(pdf_path, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
-            text = ""
+            text = []
             for page in reader.pages:
-                text += page.extract_text()
-            return text
+                page_text = page.extract_text()
+                if page_text and page_text.strip():
+                    # Metni temizle
+                    page_text = page_text.strip()
+                    # Unicode karakterleri düzelt
+                    page_text = page_text.encode('ascii', 'ignore').decode('utf-8')
+                    # Fazla boşlukları temizle
+                    page_text = re.sub(r'\s+', ' ', page_text)
+                    text.append(page_text)
+            
+            if not text:
+                return None
+            
+            return ' '.join(text)
     except Exception as e:
         print(f"PDF okuma hatası: {str(e)}")
+        traceback.print_exc()
         return None
 
 def preprocess_text(text):
     """Metni ön işleme"""
-    # Gereksiz boşlukları temizle
-    text = ' '.join(text.split())
-    # Noktalama işaretlerini düzenle
-    text = text.replace(' .', '.').replace(' ,', ',').replace(' :', ':')
-    return text
+    if not text:
+        return []
+    
+    try:
+        # Metni temizle
+        text = text.strip()
+        # Unicode karakterleri düzelt
+        text = text.encode('ascii', 'ignore').decode('utf-8')
+        # Fazla boşlukları temizle
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Metni cümlelere ayır
+        sentences = []
+        for sentence in text.split('.'):
+            sentence = sentence.strip()
+            if sentence and len(sentence.split()) >= 3:  # En az 3 kelime içeren cümleleri al
+                sentences.append(sentence)
+        
+        return sentences
+    except Exception as e:
+        print(f"Metin ön işleme hatası: {str(e)}")
+        traceback.print_exc()
+        return []
 
 def calculate_sentence_scores(sentences):
     """Cümle skorlarını hesapla"""
     if not sentences:
         return []
     
-    # TF-IDF vektörizasyonu
-    vectorizer = TfidfVectorizer(stop_words='english')
-    tfidf_matrix = vectorizer.fit_transform(sentences)
-    
-    # Kosinüs benzerliği hesapla
-    similarity_matrix = cosine_similarity(tfidf_matrix)
-    
-    # Cümle skorlarını hesapla
-    scores = []
-    for i, sentence in enumerate(sentences):
-        # Temel skor: Cümlenin diğer cümlelerle olan benzerliği
-        base_score = np.mean(similarity_matrix[i])
+    try:
+        # TF-IDF vektörizasyonu
+        vectorizer = TfidfVectorizer(stop_words='english')
+        tfidf_matrix = vectorizer.fit_transform(sentences)
         
-        # Ek skorlar
-        additional_score = 0
+        # Kosinüs benzerliği hesapla
+        similarity_matrix = cosine_similarity(tfidf_matrix)
         
-        # İngilizce cümle kontrolü - İngilizce cümleleri daha düşük puan ver
-        if is_english_sentence(sentence):
-            additional_score -= 0.5  # İngilizce cümleleri önemli ölçüde düşük puanla
+        # Cümle skorlarını hesapla
+        scores = []
+        for i, sentence in enumerate(sentences):
+            # Temel skor: Cümlenin diğer cümlelerle olan benzerliği
+            base_score = np.mean(similarity_matrix[i])
+            
+            # Ek skorlar
+            additional_score = 0
+            
+            # İngilizce cümle kontrolü
+            if is_english_sentence(sentence):
+                additional_score -= 0.3
+            
+            # Geçiş ifadeleri kontrolü
+            for word in TRANSITION_WORDS:
+                if f" {word} " in f" {sentence.lower()} ":
+                    additional_score += 0.2
+            
+            # Anahtar kelime kontrolü
+            for word in KEYWORDS:
+                if f" {word} " in f" {sentence.lower()} ":
+                    additional_score += 0.3
+            
+            # Bağlaç kontrolü
+            for word in CONJUNCTIONS:
+                if f" {word} " in f" {sentence.lower()} ":
+                    additional_score += 0.1
+            
+            # Cümle uzunluğu kontrolü (5-30 kelime arası ideal)
+            words = sentence.split()
+            if 5 <= len(words) <= 30:
+                additional_score += 0.2
+            
+            # Cümle pozisyonu kontrolü
+            if i < len(sentences) * 0.2:  # İlk %20
+                additional_score += 0.2
+            elif i > len(sentences) * 0.8:  # Son %20
+                additional_score += 0.2
+            
+            # Toplam skor
+            total_score = base_score + additional_score
+            scores.append(total_score)
         
-        # Geçiş ifadeleri kontrolü
-        for word in TRANSITION_WORDS:
-            if word in sentence.lower():
-                additional_score += 0.3
-        
-        # Anahtar kelime kontrolü
-        for word in KEYWORDS:
-            if word in sentence.lower():
-                additional_score += 0.4
-        
-        # Bağlaç kontrolü
-        for word in CONJUNCTIONS:
-            if word in sentence.lower():
-                additional_score += 0.1
-        
-        # Cümle uzunluğu kontrolü (çok kısa veya çok uzun cümleleri cezalandır)
-        words = sentence.split()
-        if len(words) < 5:
-            additional_score -= 0.3
-        elif len(words) > 30:
-            additional_score -= 0.2
-        
-        # Cümle pozisyonu kontrolü (ilk ve son cümleler genellikle önemlidir)
-        if i < len(sentences) * 0.1:  # İlk %10
-            additional_score += 0.3
-        elif i > len(sentences) * 0.9:  # Son %10
-            additional_score += 0.3
-        
-        # Noktalama işaretleri kontrolü
-        punctuation_count = sum(1 for c in sentence if c in PUNCTUATION)
-        if punctuation_count > 3:  # Çok fazla noktalama işareti varsa
-            additional_score += 0.1
-        
-        # Sayısal değer kontrolü (sayılar genellikle önemlidir)
-        if re.search(r'\d+', sentence):
-            additional_score += 0.2
-        
-        # Soru işareti kontrolü (sorular genellikle önemlidir)
-        if '?' in sentence:
-            additional_score += 0.2
-        
-        # Ünlem işareti kontrolü (vurgular genellikle önemlidir)
-        if '!' in sentence:
-            additional_score += 0.2
-        
-        # Toplam skor
-        total_score = base_score + additional_score
-        scores.append(total_score)
-    
-    return scores
+        return scores
+    except Exception as e:
+        print(f"Skor hesaplama hatası: {str(e)}")
+        traceback.print_exc()
+        return [1.0] * len(sentences)
 
 def create_summary(text, summary_length):
     """Metni özetle"""
     if not text:
         return "Metin çıkarılamadı."
     
-    # Metni cümlelere ayır
-    sentences = [s.strip() for s in text.split('.') if s.strip()]
-    
-    if not sentences:
-        return "Cümle bulunamadı."
-    
-    # Cümle skorlarını hesapla
-    scores = calculate_sentence_scores(sentences)
-    
-    # En yüksek skorlu cümleleri seç
-    num_sentences = max(1, int(len(sentences) * summary_length / 100))
-    selected_indices = np.argsort(scores)[-num_sentences:]
-    selected_indices = sorted(selected_indices)  # Orijinal sırayı koru
-    
-    # Seçilen cümleleri birleştir
-    summary = ' '.join([sentences[i] for i in selected_indices])
-    
-    # Özeti daha okunabilir hale getir
-    summary = re.sub(r'\s+', ' ', summary)  # Fazla boşlukları temizle
-    summary = re.sub(r'\.\s*\.', '.', summary)  # Fazla noktaları temizle
-    summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)  # Nokta ve büyük harf arasına boşluk ekle
-    
-    return summary
+    try:
+        # Metni cümlelere ayır
+        sentences = preprocess_text(text)
+        
+        if not sentences:
+            return "Cümle bulunamadı."
+        
+        # Cümle skorlarını hesapla
+        scores = calculate_sentence_scores(sentences)
+        
+        # En yüksek skorlu cümleleri seç
+        num_sentences = max(1, int(len(sentences) * summary_length / 100))
+        selected_indices = np.argsort(scores)[-num_sentences:]
+        selected_indices = sorted(selected_indices)  # Orijinal sırayı koru
+        
+        # Seçilen cümleleri birleştir
+        summary = '. '.join([sentences[i] for i in selected_indices])
+        
+        # Özeti temizle ve formatla
+        summary = summary.strip()
+        summary = re.sub(r'\s+', ' ', summary)  # Fazla boşlukları temizle
+        summary = re.sub(r'\.+', '.', summary)  # Fazla noktaları temizle
+        summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)  # Nokta ve büyük harf arasına boşluk ekle
+        
+        if not summary:
+            return "Özet oluşturulamadı."
+        
+        return summary
+    except Exception as e:
+        print(f"Özet oluşturma hatası: {str(e)}")
+        traceback.print_exc()
+        return "Özet oluşturulurken bir hata oluştu."
 
 # Ziyaret istatistiklerini kaydet
 def log_visit(page_name):
@@ -312,21 +338,21 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     log_visit('Özet Oluşturma')
-    # Hata kontrolü
-    if 'file' not in request.files:
-        flash('Dosya seçilmedi.', 'error')
-        return redirect(url_for('index'))
-    
-    file = request.files['file']
-    if file.filename == '':
-        flash('Dosya seçilmedi.', 'error')
-        return redirect(url_for('index'))
-    
-    if not file.filename.endswith('.pdf'):
-        flash('Sadece PDF dosyaları kabul edilir.', 'error')
-        return redirect(url_for('index'))
-    
     try:
+        # Hata kontrolü
+        if 'file' not in request.files:
+            flash('Dosya seçilmedi.', 'error')
+            return redirect(url_for('index'))
+        
+        file = request.files['file']
+        if file.filename == '':
+            flash('Dosya seçilmedi.', 'error')
+            return redirect(url_for('index'))
+        
+        if not file.filename.endswith('.pdf'):
+            flash('Sadece PDF dosyaları kabul edilir.', 'error')
+            return redirect(url_for('index'))
+        
         # Dosyayı kaydet
         if not os.path.exists(app.config['UPLOAD_FOLDER']):
             os.makedirs(app.config['UPLOAD_FOLDER'])
@@ -338,17 +364,19 @@ def upload_file():
         # PDF'den metin çıkar
         text = extract_text_from_pdf(file_path)
         if not text:
-            flash('PDF dosyası okunamadı.', 'error')
+            flash('PDF dosyası okunamadı veya boş.', 'error')
+            os.remove(file_path)
             return redirect(url_for('index'))
-        
-        # Metni ön işle
-        text = preprocess_text(text)
         
         # Özet uzunluğunu al
         summary_length = int(request.form.get('summary_length', 50))
         
         # Özet oluştur
         summary = create_summary(text, summary_length)
+        if not summary or summary == "Metin çıkarılamadı." or summary == "Cümle bulunamadı." or summary == "Özet oluşturulurken bir hata oluştu.":
+            flash('PDF dosyasından özet oluşturulamadı.', 'error')
+            os.remove(file_path)
+            return redirect(url_for('index'))
         
         # PDF bilgilerini veritabanına kaydet
         conn = sqlite3.connect('database.db')
@@ -361,9 +389,25 @@ def upload_file():
         # Geçici dosyayı sil
         os.remove(file_path)
         
+        # Özeti düzenle ve formatla
+        summary = summary.strip()
+        # Unicode karakterleri düzelt
+        summary = summary.encode('ascii', 'ignore').decode('utf-8')
+        # Fazla boşlukları temizle
+        summary = re.sub(r'\s+', ' ', summary)
+        # Fazla noktaları temizle
+        summary = re.sub(r'\.+', '.', summary)
+        # Nokta ve büyük harf arasına boşluk ekle
+        summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)
+        
+        # Özeti cümlelere ayır ve düzenle
+        sentences = [s.strip() for s in summary.split('.') if s.strip()]
+        summary = '. '.join(sentences) + '.'
+        
         return jsonify({'summary': summary})
     
     except Exception as e:
+        print(f"Yükleme hatası: {str(e)}")
         traceback.print_exc()
         flash('Özet oluşturulurken bir hata oluştu.', 'error')
         return redirect(url_for('index'))
@@ -441,8 +485,24 @@ def admin_dashboard():
         ORDER BY upload_date DESC 
         LIMIT 5
     """)
-    recent_pdf_list = [dict(zip(['id', 'filename', 'original_filename', 'upload_date', 'file_size', 'summary_length'], row))
-                      for row in c.fetchall()]
+    recent_pdf_list = []
+    for row in c.fetchall():
+        # Tarihi formatla
+        upload_date = row[3]
+        if upload_date:
+            try:
+                upload_date = datetime.strptime(upload_date, '%Y-%m-%d %H:%M:%S')
+                upload_date = upload_date.strftime('%d.%m.%Y %H:%M')
+            except:
+                upload_date = upload_date
+        recent_pdf_list.append({
+            'id': row[0],
+            'filename': row[1],
+            'original_filename': row[2],
+            'upload_date': upload_date,
+            'file_size': row[4],
+            'summary_length': row[5]
+        })
     
     # Sayfa ziyaret istatistikleri
     c.execute("""
@@ -451,8 +511,21 @@ def admin_dashboard():
         GROUP BY page_name 
         ORDER BY visit_count DESC
     """)
-    page_stats = [dict(zip(['page_name', 'visit_count', 'last_visit'], row))
-                 for row in c.fetchall()]
+    page_stats = []
+    for row in c.fetchall():
+        # Tarihi formatla
+        last_visit = row[2]
+        if last_visit:
+            try:
+                last_visit = datetime.strptime(last_visit, '%Y-%m-%d %H:%M:%S')
+                last_visit = last_visit.strftime('%d.%m.%Y %H:%M')
+            except:
+                last_visit = last_visit
+        page_stats.append({
+            'page_name': row[0],
+            'visit_count': row[1],
+            'last_visit': last_visit
+        })
     
     conn.close()
     
@@ -510,10 +583,18 @@ def admin_visits():
     """)
     page_stats = []
     for row in c.fetchall():
+        # Tarihi formatla
+        last_visit = row[2]
+        if last_visit:
+            try:
+                last_visit = datetime.strptime(last_visit, '%Y-%m-%d %H:%M:%S')
+                last_visit = last_visit.strftime('%d.%m.%Y %H:%M')
+            except:
+                last_visit = last_visit
         page_stats.append({
             'page_name': row[0],
             'visit_count': row[1],
-            'last_visit': row[2]  # String olarak bırak
+            'last_visit': last_visit
         })
     
     # Son ziyaretler
@@ -524,11 +605,19 @@ def admin_visits():
     """)
     recent_visits = []
     for row in c.fetchall():
+        # Tarihi formatla
+        visit_date = row[3]
+        if visit_date:
+            try:
+                visit_date = datetime.strptime(visit_date, '%Y-%m-%d %H:%M:%S')
+                visit_date = visit_date.strftime('%d.%m.%Y %H:%M')
+            except:
+                visit_date = visit_date
         recent_visits.append({
             'id': row[0],
             'page_name': row[1],
             'ip_address': row[2],
-            'visit_date': row[3]  # String olarak bırak
+            'visit_date': visit_date
         })
     
     conn.close()
