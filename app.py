@@ -415,7 +415,7 @@ def upload_file():
         sentences = [s.strip() for s in summary.split('.') if s.strip()]
         summary = '. '.join(sentences) + '.'
         
-        return jsonify({'summary': summary})
+        return render_template('index.html', summary=summary, filename=file.filename)
     
     except Exception as e:
         print(f"Yükleme hatası: {str(e)}")
