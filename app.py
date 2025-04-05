@@ -184,6 +184,9 @@ def extract_text_from_pdf(pdf_path):
                     page_text = page_text.encode('ascii', 'ignore').decode('utf-8')
                     # Fazla boşlukları temizle
                     page_text = re.sub(r'\s+', ' ', page_text)
+                    # Noktalama işaretlerini düzelt
+                    page_text = re.sub(r'\.+', '.', page_text)
+                    page_text = re.sub(r'\.\s*([A-Z])', r'. \1', page_text)
                     text.append(page_text)
             
             if not text:
@@ -207,6 +210,9 @@ def preprocess_text(text):
         text = text.encode('ascii', 'ignore').decode('utf-8')
         # Fazla boşlukları temizle
         text = re.sub(r'\s+', ' ', text)
+        # Noktalama işaretlerini düzelt
+        text = re.sub(r'\.+', '.', text)
+        text = re.sub(r'\.\s*([A-Z])', r'. \1', text)
         
         # Metni cümlelere ayır
         sentences = []
@@ -308,9 +314,14 @@ def create_summary(text, summary_length):
         
         # Özeti temizle ve formatla
         summary = summary.strip()
-        summary = re.sub(r'\s+', ' ', summary)  # Fazla boşlukları temizle
-        summary = re.sub(r'\.+', '.', summary)  # Fazla noktaları temizle
-        summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)  # Nokta ve büyük harf arasına boşluk ekle
+        # Unicode karakterleri düzelt
+        summary = summary.encode('ascii', 'ignore').decode('utf-8')
+        # Fazla boşlukları temizle
+        summary = re.sub(r'\s+', ' ', summary)
+        # Fazla noktaları temizle
+        summary = re.sub(r'\.+', '.', summary)
+        # Nokta ve büyük harf arasına boşluk ekle
+        summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)
         
         if not summary:
             return "Özet oluşturulamadı."
