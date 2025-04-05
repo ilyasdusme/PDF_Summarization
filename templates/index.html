@@ -24,11 +24,21 @@
     </nav>
 
     <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
         <div class="upload-section">
             <h1>PDF Dosyanızı Yükleyin</h1>
             <p class="subtitle">PDF dosyanızı yükleyin ve yapay zeka destekli özetleme sistemimiz ile içeriğini özetleyin.</p>
             
-            <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+            <form class="upload-form" action="{{ url_for('upload_file') }}" method="post" enctype="multipart/form-data">
                 <div class="file-upload-container">
                     <input type="file" name="file" id="file" class="file-input" accept=".pdf" required>
                     <label for="file" class="file-label">
@@ -56,23 +66,9 @@
             </form>
         </div>
 
-        {% if error %}
-        <div class="error-message">
-            <i class="fas fa-exclamation-circle"></i>
-            {{ error }}
-        </div>
-        {% endif %}
-
-        {% if loading %}
-        <div class="loading">
-            <i class="fas fa-spinner fa-spin"></i>
-            Özet oluşturuluyor
-        </div>
-        {% endif %}
-
         {% if summary %}
         <div class="summary-section">
-            <h2>PDF Özeti</h2>
+            <h2>PDF Özeti: {{ filename }}</h2>
             <div class="summary-content">
                 {{ summary | safe }}
             </div>

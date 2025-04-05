@@ -1,11 +1,11 @@
 /* Admin Panel Genel Stiller */
 :root {
-    --admin-primary: #4a6bff;
+    --admin-primary: hsl(25, 100%, 50%);;
     --admin-secondary: #6c757d;
     --admin-success: #28a745;
     --admin-danger: #dc3545;
     --admin-warning: #ffc107;
-    --admin-info: #17a2b8;
+    --admin-info: hsl(25, 100%, 50%);;
     --admin-light: #f8f9fa;
     --admin-dark: #343a40;
     --admin-sidebar-width: 250px;

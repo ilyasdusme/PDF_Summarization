@@ -180,8 +180,6 @@ def extract_text_from_pdf(pdf_path):
                 if page_text and page_text.strip():
                     # Metni temizle
                     page_text = page_text.strip()
-                    # Unicode karakterleri düzelt
-                    page_text = page_text.encode('ascii', 'ignore').decode('utf-8')
                     # Fazla boşlukları temizle
                     page_text = re.sub(r'\s+', ' ', page_text)
                     # Noktalama işaretlerini düzelt
@@ -190,9 +188,15 @@ def extract_text_from_pdf(pdf_path):
                     text.append(page_text)
             
             if not text:
+                print("PDF'den metin çıkarılamadı: Boş metin")
                 return None
             
-            return ' '.join(text)
+            combined_text = ' '.join(text)
+            if len(combined_text.strip()) < 100:  # Minimum metin uzunluğu kontrolü
+                print("PDF'den çıkarılan metin çok kısa")
+                return None
+                
+            return combined_text
     except Exception as e:
         print(f"PDF okuma hatası: {str(e)}")
         traceback.print_exc()
@@ -201,29 +205,55 @@ def extract_text_from_pdf(pdf_path):
 def preprocess_text(text):
     """Metni ön işleme"""
     if not text:
+        print("HATA: preprocess_text fonksiyonuna boş metin gönderildi")
         return []
     
     try:
+        print("\n=== Metin Ön İşleme Başladı ===")
+        print(f"Gelen metin uzunluğu: {len(text)} karakter")
+        
         # Metni temizle
         text = text.strip()
-        # Unicode karakterleri düzelt
-        text = text.encode('ascii', 'ignore').decode('utf-8')
+        print("1. Adım: Metin kenarlarındaki boşluklar temizlendi")
+        
         # Fazla boşlukları temizle
         text = re.sub(r'\s+', ' ', text)
+        print("2. Adım: Fazla boşluklar temizlendi")
+        
         # Noktalama işaretlerini düzelt
         text = re.sub(r'\.+', '.', text)
         text = re.sub(r'\.\s*([A-Z])', r'. \1', text)
+        print("3. Adım: Noktalama işaretleri düzeltildi")
         
         # Metni cümlelere ayır
+        print("\nCümlelere ayırma işlemi başlıyor...")
         sentences = []
-        for sentence in text.split('.'):
-            sentence = sentence.strip()
-            if sentence and len(sentence.split()) >= 3:  # En az 3 kelime içeren cümleleri al
-                sentences.append(sentence)
+        raw_sentences = sent_tokenize(text)  # NLTK ile cümlelere ayır
+        print(f"Toplam ham cümle sayısı: {len(raw_sentences)}")
         
+        for i, sentence in enumerate(raw_sentences):
+            sentence = sentence.strip()
+            words = sentence.split()
+            
+            # Cümle kontrolü
+            if len(words) >= 3:  # En az 3 kelime içeren cümleleri al
+                sentences.append(sentence)
+                print(f"Cümle {i+1} kabul edildi: {len(words)} kelime")
+            else:
+                print(f"Cümle {i+1} reddedildi: Sadece {len(words)} kelime")
+        
+        print(f"\nToplam geçerli cümle sayısı: {len(sentences)}")
+        
+        if not sentences:
+            print("UYARI: Hiç geçerli cümle bulunamadı!")
+        else:
+            print(f"İlk cümle örneği: {sentences[0][:100]}")
+        
+        print("\n=== Metin Ön İşleme Tamamlandı ===")
         return sentences
+        
     except Exception as e:
-        print(f"Metin ön işleme hatası: {str(e)}")
+        print(f"HATA: Metin ön işleme sırasında bir hata oluştu: {str(e)}")
         traceback.print_exc()
         return []
 
@@ -248,10 +278,6 @@ def calculate_sentence_scores(sentences):
             
             # Ek skorlar
             additional_score = 0
-            
-            # İngilizce cümle kontrolü
-            if is_english_sentence(sentence):
-                additional_score -= 0.3
             
             # Geçiş ifadeleri kontrolü
             for word in TRANSITION_WORDS:
@@ -292,43 +318,61 @@ def calculate_sentence_scores(sentences):
 def create_summary(text, summary_length):
     """Metni özetle"""
     if not text:
+        print("HATA: create_summary fonksiyonuna boş metin gönderildi")
         return "Metin çıkarılamadı."
     
     try:
+        print("\n=== Özet Oluşturma Başladı ===")
+        print(f"Metin uzunluğu: {len(text)} karakter")
+        
         # Metni cümlelere ayır
         sentences = preprocess_text(text)
         
         if not sentences:
+            print("HATA: Geçerli cümle bulunamadı")
             return "Cümle bulunamadı."
         
+        print(f"İşlenecek cümle sayısı: {len(sentences)}")
+        
         # Cümle skorlarını hesapla
+        print("\nCümle skorları hesaplanıyor...")
         scores = calculate_sentence_scores(sentences)
         
         # En yüksek skorlu cümleleri seç
         num_sentences = max(1, int(len(sentences) * summary_length / 100))
+        print(f"Seçilecek cümle sayısı: {num_sentences}")
+        
         selected_indices = np.argsort(scores)[-num_sentences:]
         selected_indices = sorted(selected_indices)  # Orijinal sırayı koru
         
         # Seçilen cümleleri birleştir
-        summary = '. '.join([sentences[i] for i in selected_indices])
+        selected_sentences = [sentences[i] for i in selected_indices]
+        print("\nSeçilen cümleler:")
+        for i, sentence in enumerate(selected_sentences):
+            print(f"{i+1}. {sentence[:100]}...")
+        
+        summary = '. '.join(selected_sentences)
         
         # Özeti temizle ve formatla
         summary = summary.strip()
-        # Unicode karakterleri düzelt
-        summary = summary.encode('ascii', 'ignore').decode('utf-8')
-        # Fazla boşlukları temizle
-        summary = re.sub(r'\s+', ' ', summary)
-        # Fazla noktaları temizle
-        summary = re.sub(r'\.+', '.', summary)
-        # Nokta ve büyük harf arasına boşluk ekle
-        summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)
+        summary = re.sub(r'\s+', ' ', summary)  # Fazla boşlukları temizle
+        summary = re.sub(r'\.+', '.', summary)  # Fazla noktaları temizle
+        summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)  # Nokta sonrası boşluk
+        
+        # Son nokta kontrolü
+        if not summary.endswith('.'):
+            summary += '.'
+        
+        print(f"\nÖzet uzunluğu: {len(summary)} karakter")
+        print("=== Özet Oluşturma Tamamlandı ===")
         
         if not summary:
             return "Özet oluşturulamadı."
         
         return summary
+        
     except Exception as e:
-        print(f"Özet oluşturma hatası: {str(e)}")
+        print(f"HATA: Özet oluşturma sırasında bir hata oluştu: {str(e)}")
         traceback.print_exc()
         return "Özet oluşturulurken bir hata oluştu."
 
@@ -350,44 +394,76 @@ def index():
 def upload_file():
     log_visit('Özet Oluşturma')
     try:
+        print("\n=== Dosya Yükleme İşlemi Başladı ===")
+        
+        # Form verilerini kontrol et
+        print("\nForm verileri:")
+        for key, value in request.form.items():
+            print(f"{key}: {value}")
+        
+        print("\nDosya verileri:")
+        for key, file in request.files.items():
+            print(f"{key}: {file.filename}")
+        
         # Hata kontrolü
         if 'file' not in request.files:
+            print("\nHATA: Dosya seçilmedi (file not in request.files)")
             flash('Dosya seçilmedi.', 'error')
             return redirect(url_for('index'))
         
         file = request.files['file']
         if file.filename == '':
+            print("\nHATA: Dosya adı boş")
             flash('Dosya seçilmedi.', 'error')
             return redirect(url_for('index'))
         
         if not file.filename.endswith('.pdf'):
+            print("\nHATA: PDF olmayan dosya yüklendi")
             flash('Sadece PDF dosyaları kabul edilir.', 'error')
             return redirect(url_for('index'))
+        
+        print(f"\nYüklenen dosya: {file.filename}")
         
         # Dosyayı kaydet
         if not os.path.exists(app.config['UPLOAD_FOLDER']):
             os.makedirs(app.config['UPLOAD_FOLDER'])
+            print(f"\nUploads klasörü oluşturuldu: {app.config['UPLOAD_FOLDER']}")
         
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
+        print(f"\nDosya kaydedildi: {file_path}")
+        print(f"Dosya boyutu: {os.path.getsize(file_path)} bytes")
         
         # PDF'den metin çıkar
+        print("\nPDF'den metin çıkarılıyor...")
         text = extract_text_from_pdf(file_path)
-        if not text:
+        if text:
+            print(f"Çıkarılan metin (ilk 200 karakter): {text[:200]}")
+            print(f"Toplam metin uzunluğu: {len(text)} karakter")
+        else:
+            print("HATA: Metin çıkarılamadı")
             flash('PDF dosyası okunamadı veya boş.', 'error')
             os.remove(file_path)
             return redirect(url_for('index'))
         
         # Özet uzunluğunu al
         summary_length = int(request.form.get('summary_length', 50))
+        print(f"\nÖzet uzunluğu: %{summary_length}")
         
         # Özet oluştur
+        print("\nÖzet oluşturuluyor...")
         summary = create_summary(text, summary_length)
-        if not summary or summary == "Metin çıkarılamadı." or summary == "Cümle bulunamadı." or summary == "Özet oluşturulurken bir hata oluştu.":
+        
+        if not summary or summary in ["Metin çıkarılamadı.", "Cümle bulunamadı.", "Özet oluşturulurken bir hata oluştu."]:
+            print("HATA: Özet oluşturulamadı")
+            print(f"Özet değeri: {summary}")
             flash('PDF dosyasından özet oluşturulamadı.', 'error')
             os.remove(file_path)
             return redirect(url_for('index'))
+        
+        print(f"\nOluşturulan özet (ilk 200 karakter): {summary[:200]}")
+        print(f"Özet uzunluğu: {len(summary)} karakter")
         
         # PDF bilgilerini veritabanına kaydet
         conn = sqlite3.connect('database.db')
@@ -396,29 +472,27 @@ def upload_file():
                  (filename, file.filename, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), os.path.getsize(file_path), summary_length))
         conn.commit()
         conn.close()
+        print("\nPDF bilgileri veritabanına kaydedildi")
         
         # Geçici dosyayı sil
         os.remove(file_path)
+        print("\nGeçici dosya silindi")
         
         # Özeti düzenle ve formatla
         summary = summary.strip()
-        # Unicode karakterleri düzelt
-        summary = summary.encode('ascii', 'ignore').decode('utf-8')
-        # Fazla boşlukları temizle
         summary = re.sub(r'\s+', ' ', summary)
-        # Fazla noktaları temizle
         summary = re.sub(r'\.+', '.', summary)
-        # Nokta ve büyük harf arasına boşluk ekle
         summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)
         
-        # Özeti cümlelere ayır ve düzenle
-        sentences = [s.strip() for s in summary.split('.') if s.strip()]
-        summary = '. '.join(sentences) + '.'
+        print("\n=== İşlem Tamamlandı ===")
+        print(f"Final özet (ilk 200 karakter): {summary[:200]}")
         
+        # Özeti ve dosya adını template'e gönder
         return render_template('index.html', summary=summary, filename=file.filename)
     
     except Exception as e:
-        print(f"Yükleme hatası: {str(e)}")
+        print(f"\nKRİTİK HATA: {str(e)}")
+        print("Hata detayı:")
         traceback.print_exc()
         flash('Özet oluşturulurken bir hata oluştu.', 'error')
         return redirect(url_for('index'))
