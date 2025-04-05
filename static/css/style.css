@@ -57,6 +57,7 @@ body {
     list-style: none;
     margin: 0;
     padding: 0;
+    align-items: center; /* Menüler arasındaki hizalamayı düzeltiyoruz */
 }
 
 .nav-item {
@@ -118,17 +119,14 @@ body {
     white-space: nowrap;
 }
 
-.dropdown-submenu > .dropdown-item:after {
-    content: ">";
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-}
-
 .dropdown-item:hover {
     background-color: rgba(255, 107, 53, 0.1);
     color: #FF6B35;
+}
+
+/* Alt menü öğelerinin sonundaki ok sembolünü kaldırma */
+.dropdown-submenu > .dropdown-item:after {
+    content: none; /* Ok sembolünü gizler */
 }
 
 /* Upload Section */
@@ -314,4 +312,4 @@ body {
 .highlight {
     background-color: #f8f9fa;
     border-color: #FF6B35;
-} 
+}
