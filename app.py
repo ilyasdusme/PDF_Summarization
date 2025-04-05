@@ -38,38 +38,50 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Veritabanı oluştur
 def init_db():
-    conn = sqlite3.connect('database.db')
-    c = conn.cursor()
-    
-    # PDF'ler tablosu
-    c.execute('''CREATE TABLE IF NOT EXISTS pdfs
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  filename TEXT NOT NULL,
-                  original_filename TEXT NOT NULL,
-                  upload_date TEXT NOT NULL,
-                  file_size INTEGER NOT NULL,
-                  summary_length INTEGER NOT NULL)''')
-    
-    # Ziyaret istatistikleri tablosu - Eski tabloyu sil ve yeniden oluştur
-    c.execute('DROP TABLE IF EXISTS visits')
-    c.execute('''CREATE TABLE visits
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  page_name TEXT NOT NULL,
-                  ip_address TEXT NOT NULL,
-                  visit_date TEXT NOT NULL)''')
-    
-    # Admin kullanıcıları tablosu
-    c.execute('''CREATE TABLE IF NOT EXISTS admin_users
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  username TEXT UNIQUE NOT NULL,
-                  password TEXT NOT NULL)''')
-    
-    # Varsayılan admin kullanıcısı oluştur
-    c.execute('INSERT OR IGNORE INTO admin_users (username, password) VALUES (?, ?)',
-             ('admin', 'admin123'))  # Gerçek uygulamada güvenli bir şifre kullanın
-    
-    conn.commit()
-    conn.close()
+    """Veritabanını başlat"""
+    conn = None
+    try:
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        
+        # PDF'ler tablosu
+        c.execute('''CREATE TABLE IF NOT EXISTS pdfs
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      filename TEXT NOT NULL,
+                      original_filename TEXT NOT NULL,
+                      upload_date TEXT NOT NULL,
+                      file_size INTEGER NOT NULL,
+                      summary_length INTEGER NOT NULL,
+                      file_path TEXT NOT NULL)''')
+        
+        # Ziyaret istatistikleri tablosu
+        c.execute('''CREATE TABLE IF NOT EXISTS visits
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      page_name TEXT NOT NULL,
+                      ip_address TEXT NOT NULL,
+                      visit_date TEXT NOT NULL)''')
+        
+        # Admin kullanıcıları tablosu
+        c.execute('''CREATE TABLE IF NOT EXISTS admin_users
+                     (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                      username TEXT UNIQUE NOT NULL,
+                      password TEXT NOT NULL)''')
+        
+        # Varsayılan admin kullanıcısı oluştur
+        try:
+            c.execute('INSERT OR IGNORE INTO admin_users (username, password) VALUES (?, ?)',
+                     ('admin', 'admin123'))
+        except sqlite3.IntegrityError:
+            print("Admin kullanıcısı zaten mevcut")
+        
+        conn.commit()
+        print("Veritabanı başarıyla başlatıldı")
+    except sqlite3.Error as e:
+        print(f"Veritabanı başlatma hatası: {str(e)}")
+        raise
+    finally:
+        if conn:
+            conn.close()
 
 # Veritabanını başlat
 init_db()
@@ -170,90 +182,90 @@ def is_english_sentence(sentence):
     return (english_word_count / total_words) > 0.3
 
 def extract_text_from_pdf(pdf_path):
-    """PDF'den metin çıkarma"""
+    """PDF'den metin çıkarma ve temizleme"""
     try:
+        text = ""
         with open(pdf_path, 'rb') as file:
-            reader = PyPDF2.PdfReader(file)
-            text = []
-            for page in reader.pages:
+            pdf_reader = PyPDF2.PdfReader(file)
+            
+            for page in pdf_reader.pages:
                 page_text = page.extract_text()
-                if page_text and page_text.strip():
-                    # Metni temizle
-                    page_text = page_text.strip()
+                if page_text:
+                    # Türkçe karakterleri koru ve temizle
+                    page_text = page_text.replace('ﬁ', 'fi').replace('ﬂ', 'fl')
+                    
+                    # Başlık ve alt başlıkları kaldır
+                    page_text = re.sub(r'^[A-ZÇĞİÖŞÜ\s]+\n', '', page_text)  # Büyük harfli başlıklar
+                    page_text = re.sub(r'\n[A-ZÇĞİÖŞÜ\s]+\n', '\n', page_text)  # Alt başlıklar
+                    
+                    # Yazar bilgilerini kaldır
+                    page_text = re.sub(r'^[A-ZÇĞİÖŞÜ][a-zçğıöşü]+\s+[A-ZÇĞİÖŞÜ][a-zçğıöşü]+(\s+[A-ZÇĞİÖŞÜ][a-zçğıöşü]+)?\n', '', page_text)
+                    
+                    # Sayfa numaralarını ve tarihleri kaldır
+                    page_text = re.sub(r'\b\d+\s*$', '', page_text)  # Satır sonundaki sayılar
+                    page_text = re.sub(r'^\d+\s*', '', page_text)    # Satır başındaki sayılar
+                    page_text = re.sub(r'\d{1,2}\.\d{1,2}\.\d{2,4}', '', page_text)  # Tarihler
+                    page_text = re.sub(r'\d{4}-\d{1,2}-\d{1,2}', '', page_text)      # Tarihler
+                    
+                    # Özel karakterleri ve gereksiz metinleri kaldır
+                    page_text = re.sub(r'[*#\-_=+]+', '', page_text)  # Özel karakterler
+                    page_text = re.sub(r'^\s*[A-ZÇĞİÖŞÜ\s]+\s*$', '', page_text)  # Tek satır başlıklar
+                    page_text = re.sub(r'^\s*[a-zçğıöşü\s]+\s*$', '', page_text)  # Tek satır alt başlıklar
+                    
+                    # İngilizce kelimeleri kaldır
+                    page_text = re.sub(r'\b[a-zA-Z]+\b', '', page_text)
+                    
                     # Fazla boşlukları temizle
                     page_text = re.sub(r'\s+', ' ', page_text)
-                    # Noktalama işaretlerini düzelt
-                    page_text = re.sub(r'\.+', '.', page_text)
-                    page_text = re.sub(r'\.\s*([A-Z])', r'. \1', page_text)
-                    text.append(page_text)
+                    text += page_text + " "
+        
+        # Minimum metin uzunluğu kontrolü
+        if len(text.strip()) < 50:
+            raise ValueError("PDF'den yeterli metin çıkarılamadı")
             
-            if not text:
-                print("PDF'den metin çıkarılamadı: Boş metin")
-                return None
-            
-            combined_text = ' '.join(text)
-            if len(combined_text.strip()) < 100:  # Minimum metin uzunluğu kontrolü
-                print("PDF'den çıkarılan metin çok kısa")
-                return None
-                
-            return combined_text
+        return text.strip()
     except Exception as e:
-        print(f"PDF okuma hatası: {str(e)}")
-        traceback.print_exc()
-        return None
+        print(f"PDF'den metin çıkarma hatası: {str(e)}")
+        raise
 
 def preprocess_text(text):
-    """Metni ön işleme"""
-    if not text:
-        print("HATA: preprocess_text fonksiyonuna boş metin gönderildi")
-        return []
-    
+    """Metni ön işleme ve cümlelere ayırma"""
     try:
-        print("\n=== Metin Ön İşleme Başladı ===")
-        print(f"Gelen metin uzunluğu: {len(text)} karakter")
+        print(f"DEBUG: Metin ön işleme başladı. Metin uzunluğu: {len(text)}")
         
         # Metni temizle
+        text = re.sub(r'\s+', ' ', text)  # Fazla boşlukları temizle
         text = text.strip()
-        print("1. Adım: Metin kenarlarındaki boşluklar temizlendi")
         
-        # Fazla boşlukları temizle
-        text = re.sub(r'\s+', ' ', text)
-        print("2. Adım: Fazla boşluklar temizlendi")
+        # Türkçe cümle ayırıcı için özel işlemler
+        text = re.sub(r'([.!?])\s+', r'\1\n', text)  # Noktalama işaretlerinden sonra satır sonu ekle
+        text = re.sub(r'([.!?])\n+', r'\1\n', text)  # Fazla satır sonlarını temizle
         
-        # Noktalama işaretlerini düzelt
-        text = re.sub(r'\.+', '.', text)
-        text = re.sub(r'\.\s*([A-Z])', r'. \1', text)
-        print("3. Adım: Noktalama işaretleri düzeltildi")
+        # Cümleleri ayır
+        sentences = [s.strip() for s in text.split('\n') if s.strip()]
+        print(f"DEBUG: İlk ayrıştırma sonrası cümle sayısı: {len(sentences)}")
         
-        # Metni cümlelere ayır
-        print("\nCümlelere ayırma işlemi başlıyor...")
-        sentences = []
-        raw_sentences = sent_tokenize(text)  # NLTK ile cümlelere ayır
-        print(f"Toplam ham cümle sayısı: {len(raw_sentences)}")
+        # Cümleleri filtrele
+        filtered_sentences = []
+        for sentence in sentences:
+            # Türkçe karakter kontrolü
+            if re.search(r'[ğüşıöçĞÜŞİÖÇ]', sentence):
+                # En az 3 kelime ve 15 karakter içeren cümleleri al
+                words = sentence.split()
+                if len(words) >= 3 and len(sentence) >= 15:
+                    # İngilizce kelime içeren cümleleri atla
+                    if not re.search(r'\b[a-zA-Z]+\b', sentence):
+                        # Rakam içeren cümleleri atla
+                        if not re.search(r'\d', sentence):
+                            # Başlık benzeri cümleleri atla
+                            if not re.match(r'^[A-ZÇĞİÖŞÜ\s]+$', sentence):
+                                filtered_sentences.append(sentence)
         
-        for i, sentence in enumerate(raw_sentences):
-            sentence = sentence.strip()
-            words = sentence.split()
-            
-            # Cümle kontrolü
-            if len(words) >= 3:  # En az 3 kelime içeren cümleleri al
-                sentences.append(sentence)
-                print(f"Cümle {i+1} kabul edildi: {len(words)} kelime")
-            else:
-                print(f"Cümle {i+1} reddedildi: Sadece {len(words)} kelime")
-        
-        print(f"\nToplam geçerli cümle sayısı: {len(sentences)}")
-        
-        if not sentences:
-            print("UYARI: Hiç geçerli cümle bulunamadı!")
-        else:
-            print(f"İlk cümle örneği: {sentences[0][:100]}")
-        
-        print("\n=== Metin Ön İşleme Tamamlandı ===")
-        return sentences
+        print(f"DEBUG: Filtreleme sonrası cümle sayısı: {len(filtered_sentences)}")
+        return filtered_sentences
         
     except Exception as e:
-        print(f"HATA: Metin ön işleme sırasında bir hata oluştu: {str(e)}")
+        print(f"ERROR: Metin ön işleme hatası: {str(e)}")
         traceback.print_exc()
         return []
 
@@ -315,66 +327,89 @@ def calculate_sentence_scores(sentences):
         traceback.print_exc()
         return [1.0] * len(sentences)
 
-def create_summary(text, summary_length):
-    """Metni özetle"""
-    if not text:
-        print("HATA: create_summary fonksiyonuna boş metin gönderildi")
-        return "Metin çıkarılamadı."
-    
+def create_summary(text, summary_length=5):
+    """Metni özetleme"""
     try:
-        print("\n=== Özet Oluşturma Başladı ===")
-        print(f"Metin uzunluğu: {len(text)} karakter")
+        print(f"DEBUG: Özet oluşturma başladı. Metin uzunluğu: {len(text)}")
         
         # Metni cümlelere ayır
         sentences = preprocess_text(text)
+        print(f"DEBUG: Cümle sayısı: {len(sentences)}")
         
         if not sentences:
-            print("HATA: Geçerli cümle bulunamadı")
-            return "Cümle bulunamadı."
+            print("ERROR: Özetlenecek cümle bulunamadı")
+            return None
         
-        print(f"İşlenecek cümle sayısı: {len(sentences)}")
+        # Cümleleri puanla
+        sentence_scores = {}
+        for i, sentence in enumerate(sentences):
+            score = 0
+            
+            # Kelime frekansı ve bağlam puanı
+            words = sentence.lower().split()
+            for word in words:
+                if len(word) > 3:  # Kısa kelimeleri atla
+                    # Türkçe kelime kontrolü
+                    if re.search(r'[ğüşıöçĞÜŞİÖÇ]', word):
+                        # Kelimenin diğer cümlelerde geçme sıklığı
+                        frequency = sum(1 for s in sentences if word in s.lower())
+                        # Bağlam puanı: Kelime diğer cümlelerde ne kadar yakın geçiyor
+                        context_score = sum(1 for s in sentences if word in s.lower() and abs(sentences.index(s) - i) <= 2)
+                        score += frequency + (context_score * 2)
+            
+            # Cümle uzunluğu
+            score += len(words) * 0.5
+            
+            # Cümle pozisyonu
+            position_score = 1 - (i / len(sentences))
+            score += position_score * 2
+            
+            # Bağlaç ve geçiş kelimeleri kontrolü
+            transition_words = ['ancak', 'fakat', 'ama', 'çünkü', 'dolayısıyla', 'bu nedenle', 
+                              'sonuç olarak', 'özetle', 'kısacası', 'özellikle', 'örneğin',
+                              'bununla birlikte', 'ayrıca', 'buna ek olarak', 'dahası',
+                              'bunun yanında', 'bununla beraber', 'buna rağmen']
+            for word in transition_words:
+                if word in sentence.lower():
+                    score += 2
+            
+            sentence_scores[sentence] = score
         
-        # Cümle skorlarını hesapla
-        print("\nCümle skorları hesaplanıyor...")
-        scores = calculate_sentence_scores(sentences)
+        print(f"DEBUG: Cümle puanlaması tamamlandı. Cümle sayısı: {len(sentence_scores)}")
         
-        # En yüksek skorlu cümleleri seç
-        num_sentences = max(1, int(len(sentences) * summary_length / 100))
-        print(f"Seçilecek cümle sayısı: {num_sentences}")
+        # En yüksek puanlı cümleleri seç
+        sorted_sentences = sorted(sentence_scores.items(), key=lambda x: x[1], reverse=True)
+        selected_sentences = [s[0] for s in sorted_sentences[:summary_length]]
         
-        selected_indices = np.argsort(scores)[-num_sentences:]
-        selected_indices = sorted(selected_indices)  # Orijinal sırayı koru
+        print(f"DEBUG: Seçilen cümle sayısı: {len(selected_sentences)}")
         
-        # Seçilen cümleleri birleştir
-        selected_sentences = [sentences[i] for i in selected_indices]
-        print("\nSeçilen cümleler:")
-        for i, sentence in enumerate(selected_sentences):
-            print(f"{i+1}. {sentence[:100]}...")
+        # Cümleleri orijinal sırasına göre sırala ve bağlamı güçlendir
+        summary = []
+        for i, sentence in enumerate(sentences):
+            if sentence in selected_sentences:
+                # Önceki cümle ile bağlantı kur
+                if i > 0 and sentences[i-1] in selected_sentences:
+                    # Bağlaç ekle
+                    if not any(word in sentence.lower() for word in transition_words):
+                        sentence = "Ayrıca, " + sentence
+                summary.append(sentence)
         
-        summary = '. '.join(selected_sentences)
+        # Özeti birleştir ve temizle
+        summary_text = ' '.join(summary)
+        summary_text = re.sub(r'\s+', ' ', summary_text)  # Fazla boşlukları temizle
+        summary_text = summary_text.strip()
         
-        # Özeti temizle ve formatla
-        summary = summary.strip()
-        summary = re.sub(r'\s+', ' ', summary)  # Fazla boşlukları temizle
-        summary = re.sub(r'\.+', '.', summary)  # Fazla noktaları temizle
-        summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)  # Nokta sonrası boşluk
+        # Son cümleyi düzgün bitir
+        if not summary_text.endswith(('.', '!', '?')):
+            summary_text += '.'
         
-        # Son nokta kontrolü
-        if not summary.endswith('.'):
-            summary += '.'
-        
-        print(f"\nÖzet uzunluğu: {len(summary)} karakter")
-        print("=== Özet Oluşturma Tamamlandı ===")
-        
-        if not summary:
-            return "Özet oluşturulamadı."
-        
-        return summary
+        print(f"DEBUG: Özet oluşturuldu. Özet uzunluğu: {len(summary_text)}")
+        return summary_text
         
     except Exception as e:
-        print(f"HATA: Özet oluşturma sırasında bir hata oluştu: {str(e)}")
+        print(f"ERROR: Özet oluşturma hatası: {str(e)}")
         traceback.print_exc()
-        return "Özet oluşturulurken bir hata oluştu."
+        return None
 
 # Ziyaret istatistiklerini kaydet
 def log_visit(page_name):
@@ -387,96 +422,97 @@ def log_visit(page_name):
 
 @app.route('/')
 def index():
-    log_visit('Ana Sayfa')
-    return render_template('index.html')
+    """Ana sayfa"""
+    # Session'dan özet ve dosya adını al
+    summary = session.pop('summary', None)
+    filename = session.pop('filename', None)
+    
+    return render_template('index.html', summary=summary, filename=filename)
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    log_visit('Özet Oluşturma')
     try:
-        print("\n=== Dosya Yükleme İşlemi Başladı ===")
-        
-        # Form verilerini kontrol et
-        print("\nForm verileri:")
-        for key, value in request.form.items():
-            print(f"{key}: {value}")
-        
-        print("\nDosya verileri:")
-        for key, file in request.files.items():
-            print(f"{key}: {file.filename}")
-        
-        # Hata kontrolü
         if 'file' not in request.files:
-            print("\nHATA: Dosya seçilmedi (file not in request.files)")
             flash('Dosya seçilmedi.', 'error')
             return redirect(url_for('index'))
         
         file = request.files['file']
         if file.filename == '':
-            print("\nHATA: Dosya adı boş")
             flash('Dosya seçilmedi.', 'error')
             return redirect(url_for('index'))
         
         if not file.filename.endswith('.pdf'):
-            print("\nHATA: PDF olmayan dosya yüklendi")
             flash('Sadece PDF dosyaları kabul edilir.', 'error')
             return redirect(url_for('index'))
         
-        print(f"\nYüklenen dosya: {file.filename}")
-        
         # Dosyayı kaydet
-        if not os.path.exists(app.config['UPLOAD_FOLDER']):
-            os.makedirs(app.config['UPLOAD_FOLDER'])
-            print(f"\nUploads klasörü oluşturuldu: {app.config['UPLOAD_FOLDER']}")
-        
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
-        print(f"\nDosya kaydedildi: {file_path}")
-        print(f"Dosya boyutu: {os.path.getsize(file_path)} bytes")
+        
+        print(f"DEBUG: Dosya kaydedildi: {file_path}")
         
         # PDF'den metin çıkar
-        print("\nPDF'den metin çıkarılıyor...")
-        text = extract_text_from_pdf(file_path)
-        if text:
-            print(f"Çıkarılan metin (ilk 200 karakter): {text[:200]}")
-            print(f"Toplam metin uzunluğu: {len(text)} karakter")
-        else:
-            print("HATA: Metin çıkarılamadı")
+        try:
+            text = extract_text_from_pdf(file_path)
+            print(f"DEBUG: Metin çıkarıldı, uzunluk: {len(text)}")
+        except Exception as e:
+            print(f"ERROR: Metin çıkarma hatası: {str(e)}")
+            flash('PDF dosyası okunamadı veya boş.', 'error')
+            os.remove(file_path)
+            return redirect(url_for('index'))
+        
+        if not text:
             flash('PDF dosyası okunamadı veya boş.', 'error')
             os.remove(file_path)
             return redirect(url_for('index'))
         
         # Özet uzunluğunu al
-        summary_length = int(request.form.get('summary_length', 50))
-        print(f"\nÖzet uzunluğu: %{summary_length}")
+        try:
+            summary_length = int(request.form.get('summary_length', 50))
+            print(f"DEBUG: Özet uzunluğu: {summary_length}")
+        except ValueError:
+            summary_length = 50
         
         # Özet oluştur
-        print("\nÖzet oluşturuluyor...")
-        summary = create_summary(text, summary_length)
+        try:
+            summary = create_summary(text, summary_length)
+            print(f"DEBUG: Özet oluşturuldu, uzunluk: {len(summary)}")
+        except Exception as e:
+            print(f"ERROR: Özet oluşturma hatası: {str(e)}")
+            flash('Özet oluşturulurken bir hata oluştu.', 'error')
+            os.remove(file_path)
+            return redirect(url_for('index'))
         
-        if not summary or summary in ["Metin çıkarılamadı.", "Cümle bulunamadı.", "Özet oluşturulurken bir hata oluştu."]:
-            print("HATA: Özet oluşturulamadı")
-            print(f"Özet değeri: {summary}")
+        if not summary:
             flash('PDF dosyasından özet oluşturulamadı.', 'error')
             os.remove(file_path)
             return redirect(url_for('index'))
         
-        print(f"\nOluşturulan özet (ilk 200 karakter): {summary[:200]}")
-        print(f"Özet uzunluğu: {len(summary)} karakter")
-        
         # PDF bilgilerini veritabanına kaydet
-        conn = sqlite3.connect('database.db')
-        c = conn.cursor()
-        c.execute("INSERT INTO pdfs (filename, original_filename, upload_date, file_size, summary_length) VALUES (?, ?, ?, ?, ?)",
-                 (filename, file.filename, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), os.path.getsize(file_path), summary_length))
-        conn.commit()
-        conn.close()
-        print("\nPDF bilgileri veritabanına kaydedildi")
-        
-        # Geçici dosyayı sil
-        os.remove(file_path)
-        print("\nGeçici dosya silindi")
+        conn = None
+        try:
+            conn = sqlite3.connect('database.db')
+            c = conn.cursor()
+            
+            # Dosya boyutunu al
+            file_size = os.path.getsize(file_path)
+            
+            # Veritabanına kaydet
+            c.execute("INSERT INTO pdfs (filename, original_filename, upload_date, file_size, summary_length, file_path) VALUES (?, ?, ?, ?, ?, ?)",
+                     (filename, file.filename, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), file_size, summary_length, file_path))
+            
+            conn.commit()
+            print("DEBUG: Veritabanına kaydedildi")
+        except sqlite3.Error as e:
+            print(f"ERROR: Veritabanı hatası: {str(e)}")
+            flash('Veritabanına kaydedilirken bir hata oluştu.', 'error')
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            return redirect(url_for('index'))
+        finally:
+            if conn:
+                conn.close()
         
         # Özeti düzenle ve formatla
         summary = summary.strip()
@@ -484,17 +520,18 @@ def upload_file():
         summary = re.sub(r'\.+', '.', summary)
         summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)
         
-        print("\n=== İşlem Tamamlandı ===")
-        print(f"Final özet (ilk 200 karakter): {summary[:200]}")
+        # Özeti ve dosya adını session'a kaydet
+        session['summary'] = summary
+        session['filename'] = file.filename
         
-        # Özeti ve dosya adını template'e gönder
-        return render_template('index.html', summary=summary, filename=file.filename)
+        # Başarılı mesajı göster
+        flash('PDF başarıyla yüklendi ve özetlendi!', 'success')
+        return redirect(url_for('index'))
     
     except Exception as e:
-        print(f"\nKRİTİK HATA: {str(e)}")
-        print("Hata detayı:")
+        print(f"KRİTİK HATA: {str(e)}")
         traceback.print_exc()
-        flash('Özet oluşturulurken bir hata oluştu.', 'error')
+        flash('Beklenmeyen bir hata oluştu.', 'error')
         return redirect(url_for('index'))
 
 @app.route('/download')
@@ -622,16 +659,39 @@ def admin_dashboard():
                          recent_pdf_list=recent_pdf_list,
                          page_stats=page_stats)
 
-# PDF listesi sayfası
-@app.route('/admin/pdfs')
+@app.route('/admin/pdfs', methods=['GET', 'POST'])
 @admin_required
 def admin_pdfs():
-    log_visit('PDF Listesi')
+    """PDF yönetim sayfası"""
+    if request.method == 'POST':
+        # Toplu silme işlemi
+        pdf_ids = request.form.getlist('pdf_ids')
+        if pdf_ids:
+            conn = sqlite3.connect('database.db')
+            c = conn.cursor()
+            
+            # Seçilen PDF'leri sil
+            for pdf_id in pdf_ids:
+                # PDF bilgilerini al
+                c.execute("SELECT file_path FROM pdfs WHERE id = ?", (pdf_id,))
+                result = c.fetchone()
+                if result:
+                    file_path = result[0]
+                    # Dosyayı sil
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+                    # Veritabanından sil
+                    c.execute("DELETE FROM pdfs WHERE id = ?", (pdf_id,))
+            
+            conn.commit()
+            conn.close()
+            flash('Seçilen PDF\'ler başarıyla silindi!', 'success')
     
+    # PDF listesini getir
     conn = sqlite3.connect('database.db')
     c = conn.cursor()
     c.execute("SELECT * FROM pdfs ORDER BY upload_date DESC")
-    pdfs = [dict(zip(['id', 'filename', 'original_filename', 'upload_date', 'file_size', 'summary_length'], row))
+    pdfs = [dict(zip(['id', 'filename', 'original_filename', 'upload_date', 'file_size', 'summary_length', 'file_path'], row))
             for row in c.fetchall()]
     conn.close()
     
@@ -713,32 +773,35 @@ def admin_visits():
                          page_stats=page_stats,
                          recent_visits=recent_visits)
 
-# PDF silme işlemi
-@app.route('/admin/delete_pdf/<int:pdf_id>', methods=['POST'])
+@app.route('/admin/download_pdf/<int:pdf_id>')
 @admin_required
-def delete_pdf(pdf_id):
-    conn = sqlite3.connect('database.db')
-    c = conn.cursor()
-    
-    # PDF bilgilerini al
-    c.execute("SELECT filename FROM pdfs WHERE id = ?", (pdf_id,))
-    pdf = c.fetchone()
-    
-    if pdf:
-        # Dosyayı sil
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf[0])
-        if os.path.exists(file_path):
-            os.remove(file_path)
+def download_pdf(pdf_id):
+    """PDF indirme işlemi"""
+    try:
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
         
-        # Veritabanından sil
-        c.execute("DELETE FROM pdfs WHERE id = ?", (pdf_id,))
-        conn.commit()
-        flash('PDF başarıyla silindi!', 'success')
-    else:
-        flash('PDF bulunamadı!', 'error')
-    
-    conn.close()
-    return redirect(url_for('admin_pdfs'))
+        # PDF bilgilerini al
+        c.execute("SELECT file_path, original_filename FROM pdfs WHERE id = ?", (pdf_id,))
+        result = c.fetchone()
+        conn.close()
+        
+        if result:
+            file_path, original_filename = result
+            if os.path.exists(file_path):
+                return send_file(
+                    file_path,
+                    as_attachment=True,
+                    download_name=original_filename,
+                    mimetype='application/pdf'
+                )
+        
+        flash('PDF dosyası bulunamadı!', 'error')
+        return redirect(url_for('admin_pdfs'))
+    except Exception as e:
+        print(f"PDF indirme hatası: {str(e)}")
+        flash('PDF indirilirken bir hata oluştu!', 'error')
+        return redirect(url_for('admin_pdfs'))
 
 if __name__ == '__main__':
     app.run(debug=True) 

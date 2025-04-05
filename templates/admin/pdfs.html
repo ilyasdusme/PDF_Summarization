@@ -73,39 +73,62 @@
             <div class="admin-section">
                 <h2>PDF'ler</h2>
                 <div class="admin-table-container">
-                    <table class="admin-table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Dosya Adı</th>
-                                <th>Orijinal Ad</th>
-                                <th>Yükleme Tarihi</th>
-                                <th>Boyut</th>
-                                <th>Özet Uzunluğu</th>
-                                <th>İşlemler</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for pdf in pdfs %}
-                            <tr>
-                                <td>{{ pdf.id }}</td>
-                                <td>{{ pdf.filename }}</td>
-                                <td>{{ pdf.original_filename }}</td>
-                                <td>{{ pdf.upload_date }}</td>
-                                <td>{{ pdf.file_size }} bytes</td>
-                                <td>{{ pdf.summary_length }}%</td>
-                                <td>
-                                    <form action="{{ url_for('delete_pdf', pdf_id=pdf.id) }}" method="POST" onsubmit="return confirm('Bu PDF\'i silmek istediğinizden emin misiniz?');">
-                                        <button type="submit" class="btn btn-danger">Sil</button>
-                                    </form>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
+                    <form method="POST" action="{{ url_for('admin_pdfs') }}" onsubmit="return confirm('Seçili PDF\'leri silmek istediğinizden emin misiniz?');">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <input type="checkbox" id="select-all" class="form-check-input">
+                                        </th>
+                                        <th>Dosya Adı</th>
+                                        <th>Orijinal Ad</th>
+                                        <th>Yükleme Tarihi</th>
+                                        <th>Boyut</th>
+                                        <th>Özet Uzunluğu</th>
+                                        <th>İşlemler</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for pdf in pdfs %}
+                                    <tr>
+                                        <td>
+                                            <input type="checkbox" name="pdf_ids" value="{{ pdf.id }}" class="form-check-input pdf-checkbox">
+                                        </td>
+                                        <td>{{ pdf.filename }}</td>
+                                        <td>{{ pdf.original_filename }}</td>
+                                        <td>{{ pdf.upload_date }}</td>
+                                        <td>{{ pdf.file_size|filesizeformat }}</td>
+                                        <td>%{{ pdf.summary_length }}</td>
+                                        <td>
+                                            <a href="{{ url_for('download_pdf', pdf_id=pdf.id) }}" class="btn btn-sm btn-primary">
+                                                <i class="fas fa-download"></i> İndir
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-danger">
+                                <i class="fas fa-trash"></i> Seçili PDF'leri Sil
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
     </div>
+
+    <script>
+    document.getElementById('select-all').addEventListener('change', function() {
+        const checkboxes = document.getElementsByClassName('pdf-checkbox');
+        for (let checkbox of checkboxes) {
+            checkbox.checked = this.checked;
+        }
+    });
+    </script>
 </body>
 </html> 
