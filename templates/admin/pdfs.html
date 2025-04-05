@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF'ler - Admin Panel</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <div class="admin-sidebar">
+            <div class="admin-logo">
+                <i class="fas fa-file-pdf"></i>
+                <h2>PDF Özet Admin</h2>
+            </div>
+            
+            <div class="admin-user">
+                <i class="fas fa-user-shield"></i>
+                <span>Admin</span>
+            </div>
+            
+            <ul class="admin-menu">
+                <li>
+                    <a href="{{ url_for('admin_dashboard') }}">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li class="active">
+                    <a href="{{ url_for('admin_pdfs') }}">
+                        <i class="fas fa-file-alt"></i>
+                        <span>PDF'ler</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('admin_visits') }}">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>Ziyaret İstatistikleri</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('admin_logout') }}">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Çıkış Yap</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        
+        <!-- Content -->
+        <div class="admin-content">
+            <div class="admin-header">
+                <h1>PDF'ler</h1>
+                <div class="admin-header-actions">
+                    <a href="{{ url_for('index') }}" class="admin-btn admin-btn-secondary">
+                        <i class="fas fa-external-link-alt"></i>
+                        Siteyi Görüntüle
+                    </a>
+                </div>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <!-- PDF List -->
+            <div class="admin-section">
+                <div class="admin-table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Dosya Adı</th>
+                                <th>Orijinal Ad</th>
+                                <th>Yüklenme Tarihi</th>
+                                <th>Boyut</th>
+                                <th>Özet Uzunluğu</th>
+                                <th>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pdf in pdfs %}
+                            <tr>
+                                <td>{{ pdf.id }}</td>
+                                <td>{{ pdf.filename }}</td>
+                                <td>{{ pdf.original_filename }}</td>
+                                <td>{{ pdf.upload_date.strftime('%d.%m.%Y %H:%M') }}</td>
+                                <td>{{ pdf.file_size }}</td>
+                                <td>{{ pdf.summary_length }}</td>
+                                <td>
+                                    <form method="POST" action="{{ url_for('admin_delete_pdf', pdf_id=pdf.id) }}" 
+                                          onsubmit="return confirm('Bu PDF\'i silmek istediğinizden emin misiniz?');" 
+                                          style="display: inline;">
+                                        <button type="submit" class="admin-btn admin-btn-danger">
+                                            <i class="fas fa-trash"></i>
+                                            Sil
+                                        </button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ÖZETLY</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <div class="logo">
+                <i class="fas fa-book-reader"></i>
+                <span>Özetly</span>
+            </div>
+            <ul class="nav-links">
+                <li><a href="#" class="active">Ana Sayfa</a></li>
+                <li><a href="#nasil-calisir">Nasıl Çalışır?</a></li>
+                <li><a href="#hakkimizda">Hakkımızda</a></li>
+                <li><a href="#iletisim">İletişim</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="upload-section">
+            <h1>PDF Dosyanızı Yükleyin</h1>
+            <p class="subtitle">PDF dosyanızı yükleyin ve yapay zeka destekli özetleme sistemimiz ile içeriğini özetleyin.</p>
+            
+            <form class="upload-form" action="/upload" method="post" enctype="multipart/form-data">
+                <div class="file-upload-container">
+                    <input type="file" name="file" id="file" class="file-input" accept=".pdf" required>
+                    <label for="file" class="file-label">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        PDF Seçin veya Sürükleyin
+                    </label>
+                    <div id="file-name" class="file-name"></div>
+                </div>
+                
+                <div class="summary-options">
+                    <div class="slider-container">
+                        <div class="slider-value">%50</div>
+                        <input type="range" min="10" max="90" value="50" class="slider" id="summary-length" name="summary_length">
+                        <div class="slider-labels">
+                            <span>Kısa Özet</span>
+                            <span>Uzun Özet</span>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="submit-btn">
+                        <i class="fas fa-magic"></i>
+                        Özet Oluştur
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        {% if error %}
+        <div class="error-message">
+            <i class="fas fa-exclamation-circle"></i>
+            {{ error }}
+        </div>
+        {% endif %}
+
+        {% if loading %}
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i>
+            Özet oluşturuluyor
+        </div>
+        {% endif %}
+
+        {% if summary %}
+        <div class="summary-section">
+            <h2>PDF Özeti</h2>
+            <div class="summary-content">
+                {{ summary | safe }}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2024 PDF Özetleme. Tüm hakları saklıdır.</p>
+        </div>
+    </footer>
+
+    <script>
+        const fileInput = document.getElementById('file');
+        const fileName = document.getElementById('file-name');
+        const slider = document.getElementById('summary-length');
+        const sliderValue = document.querySelector('.slider-value');
+
+        fileInput.addEventListener('change', function(e) {
+            if (this.files && this.files[0]) {
+                fileName.textContent = this.files[0].name;
+            }
+        });
+
+        slider.addEventListener('input', function() {
+            sliderValue.textContent = '%' + this.value;
+        });
+
+        // Drag and drop functionality
+        const dropZone = document.querySelector('.upload-section');
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults (e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight(e) {
+            dropZone.classList.add('highlight');
+        }
+
+        function unhighlight(e) {
+            dropZone.classList.remove('highlight');
+        }
+
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+
+            fileInput.files = files;
+            if (files && files[0]) {
+                fileName.textContent = files[0].name;
+            }
+        }
+    </script>
+</body>
+</html> 
