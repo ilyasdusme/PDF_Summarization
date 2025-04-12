@@ -340,8 +340,11 @@ def create_summary(text, summary_length=5):
             print("ERROR: Özetlenecek cümle bulunamadı")
             return None
         
-        # Cümleleri puanla
+        # Cümleleri puanla ve grupla
         sentence_scores = {}
+        sentence_groups = []
+        current_group = []
+        
         for i, sentence in enumerate(sentences):
             score = 0
             
@@ -374,13 +377,30 @@ def create_summary(text, summary_length=5):
                     score += 2
             
             sentence_scores[sentence] = score
+            
+            # Cümleleri anlam gruplarına ayır
+            if not current_group or (i > 0 and any(word in sentences[i-1].lower() for word in transition_words)):
+                if current_group:
+                    sentence_groups.append(current_group)
+                current_group = [sentence]
+            else:
+                current_group.append(sentence)
         
-        print(f"DEBUG: Cümle puanlaması tamamlandı. Cümle sayısı: {len(sentence_scores)}")
+        if current_group:
+            sentence_groups.append(current_group)
         
-        # En yüksek puanlı cümleleri seç
-        sorted_sentences = sorted(sentence_scores.items(), key=lambda x: x[1], reverse=True)
-        selected_sentences = [s[0] for s in sorted_sentences[:summary_length]]
+        print(f"DEBUG: Cümle grupları oluşturuldu. Grup sayısı: {len(sentence_groups)}")
         
+        # Her gruptan en önemli cümleleri seç
+        selected_sentences = []
+        for group in sentence_groups:
+            if group:
+                # Grubun en yüksek puanlı cümlesini seç
+                best_sentence = max(group, key=lambda s: sentence_scores.get(s, 0))
+                selected_sentences.append(best_sentence)
+        
+        # Özet uzunluğuna göre cümleleri seç
+        selected_sentences = selected_sentences[:summary_length]
         print(f"DEBUG: Seçilen cümle sayısı: {len(selected_sentences)}")
         
         # Cümleleri orijinal sırasına göre sırala ve bağlamı güçlendir
@@ -391,17 +411,45 @@ def create_summary(text, summary_length=5):
                 if i > 0 and sentences[i-1] in selected_sentences:
                     # Bağlaç ekle
                     if not any(word in sentence.lower() for word in transition_words):
-                        sentence = "Ayrıca, " + sentence
+                        # Cümleler arasındaki mesafeye göre bağlaç seç
+                        distance = abs(sentences.index(sentence) - sentences.index(sentences[i-1]))
+                        if distance > 2:
+                            sentence = "Ayrıca, " + sentence
+                        else:
+                            sentence = "Bununla birlikte, " + sentence
+                
+                # Noktalama işaretlerini düzenle
+                sentence = sentence.strip()
+                
+                # Noktalama işaretlerinden sonra boşluk ekle
+                sentence = re.sub(r'([.,!?])', r'\1 ', sentence)
+                
+                # Birden fazla boşluğu tek boşluğa indir
+                sentence = re.sub(r'\s+', ' ', sentence)
+                
+                # Noktalama işaretlerinden önceki boşlukları kaldır
+                sentence = re.sub(r'\s+([.,!?])', r'\1', sentence)
+                
+                # Noktalama işaretlerinden sonraki fazla boşlukları kaldır
+                sentence = re.sub(r'([.,!?])\s+', r'\1 ', sentence)
+                
+                # Cümle sonunda noktalama işareti yoksa nokta ekle
+                if not re.search(r'[.!?]$', sentence):
+                    sentence += '.'
+                
+                # Büyük harfle başla
+                sentence = sentence[0].upper() + sentence[1:]
+                
                 summary.append(sentence)
         
         # Özeti birleştir ve temizle
         summary_text = ' '.join(summary)
-        summary_text = re.sub(r'\s+', ' ', summary_text)  # Fazla boşlukları temizle
-        summary_text = summary_text.strip()
         
-        # Son cümleyi düzgün bitir
-        if not summary_text.endswith(('.', '!', '?')):
-            summary_text += '.'
+        # Son düzenlemeler
+        summary_text = re.sub(r'\s+', ' ', summary_text)  # Fazla boşlukları temizle
+        summary_text = re.sub(r'\.+', '.', summary_text)  # Birden fazla noktayı tek noktaya indir
+        summary_text = re.sub(r'\.\s*([A-Z])', r'. \1', summary_text)  # Noktadan sonra büyük harf başlat
+        summary_text = summary_text.strip()
         
         print(f"DEBUG: Özet oluşturuldu. Özet uzunluğu: {len(summary_text)}")
         return summary_text
@@ -470,9 +518,10 @@ def upload_file():
         # Özet uzunluğunu al
         try:
             summary_length = int(request.form.get('summary_length', 50))
-            print(f"DEBUG: Özet uzunluğu: {summary_length}")
+            print(f"DEBUG: Form'dan alınan özet uzunluğu: {summary_length}")
         except ValueError:
             summary_length = 50
+            print(f"DEBUG: Özet uzunluğu değeri geçersiz, varsayılan değer kullanılıyor: {summary_length}")
         
         # Özet oluştur
         try:
@@ -503,7 +552,7 @@ def upload_file():
                      (filename, file.filename, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), file_size, summary_length, file_path))
             
             conn.commit()
-            print("DEBUG: Veritabanına kaydedildi")
+            print(f"DEBUG: Veritabanına kaydedildi. Özet uzunluğu: {summary_length}")
         except sqlite3.Error as e:
             print(f"ERROR: Veritabanı hatası: {str(e)}")
             flash('Veritabanına kaydedilirken bir hata oluştu.', 'error')
@@ -691,8 +740,11 @@ def admin_pdfs():
     conn = sqlite3.connect('database.db')
     c = conn.cursor()
     c.execute("SELECT * FROM pdfs ORDER BY upload_date DESC")
-    pdfs = [dict(zip(['id', 'filename', 'original_filename', 'upload_date', 'file_size', 'summary_length', 'file_path'], row))
-            for row in c.fetchall()]
+    pdfs = []
+    for row in c.fetchall():
+        pdf = dict(zip(['id', 'filename', 'original_filename', 'upload_date', 'file_size', 'summary_length', 'file_path'], row))
+        print(f"DEBUG: PDF ID: {pdf['id']}, Özet Uzunluğu: {pdf['summary_length']}")
+        pdfs.append(pdf)
     conn.close()
     
     return render_template('admin/pdfs.html', pdfs=pdfs)
