@@ -100,13 +100,10 @@
 
                 <div class="summary-options">
                     <div class="slider-container">
-                        <div class="slider-value" id="slider-value">50%</div>
-                        <input type="range" class="slider" id="summary-length" name="summary_length" 
+                        <label for="summary_length">Özet Uzunluğu:</label>
+                        <input type="range" class="form-range" id="summary_length" name="summary_length" 
                                min="10" max="90" value="50" step="5">
-                        <div class="slider-labels">
-                            <span>Kısa</span>
-                            <span>Uzun</span>
-                        </div>
+                        <span class="slider-value">50%</span>
                     </div>
 
                     <button type="submit" class="submit-btn">
@@ -191,7 +188,7 @@
             const fileInput = document.getElementById('file');
             const fileLabel = document.querySelector('.file-label');
             const fileName = document.querySelector('.file-name');
-            const slider = document.getElementById('summary-length');
+            const slider = document.getElementById('summary_length');
             const sliderValue = document.querySelector('.slider-value');
 
             fileInput.addEventListener('change', function() {

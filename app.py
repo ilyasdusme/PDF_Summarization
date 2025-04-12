@@ -17,6 +17,8 @@ import sqlite3
 from datetime import datetime, timedelta
 import json
 from functools import wraps
+from transformers import AutoTokenizer, BertForSequenceClassification, pipeline
+import torch
 
 # NLTK kütüphanesini indir
 try:
@@ -327,10 +329,14 @@ def calculate_sentence_scores(sentences):
         traceback.print_exc()
         return [1.0] * len(sentences)
 
+# BERT modelini ve tokenizer'ı yükle
+tokenizer = AutoTokenizer.from_pretrained("dbmdz/bert-base-turkish-cased")
+model = BertForSequenceClassification.from_pretrained("dbmdz/bert-base-turkish-cased")
+
 def create_summary(text, summary_length=5):
-    """Metni özetleme"""
+    """Metni BERT modeli kullanarak özetleme"""
     try:
-        print(f"DEBUG: Özet oluşturma başladı. Metin uzunluğu: {len(text)}")
+        print(f"DEBUG: BERT özetleme başladı. Metin uzunluğu: {len(text)}")
         
         # Metni cümlelere ayır
         sentences = preprocess_text(text)
@@ -339,123 +345,159 @@ def create_summary(text, summary_length=5):
         if not sentences:
             print("ERROR: Özetlenecek cümle bulunamadı")
             return None
-        
-        # Cümleleri puanla ve grupla
-        sentence_scores = {}
-        sentence_groups = []
-        current_group = []
-        
-        for i, sentence in enumerate(sentences):
-            score = 0
             
-            # Kelime frekansı ve bağlam puanı
-            words = sentence.lower().split()
-            for word in words:
-                if len(word) > 3:  # Kısa kelimeleri atla
-                    # Türkçe kelime kontrolü
-                    if re.search(r'[ğüşıöçĞÜŞİÖÇ]', word):
-                        # Kelimenin diğer cümlelerde geçme sıklığı
-                        frequency = sum(1 for s in sentences if word in s.lower())
-                        # Bağlam puanı: Kelime diğer cümlelerde ne kadar yakın geçiyor
-                        context_score = sum(1 for s in sentences if word in s.lower() and abs(sentences.index(s) - i) <= 2)
-                        score += frequency + (context_score * 2)
-            
-            # Cümle uzunluğu
-            score += len(words) * 0.5
-            
-            # Cümle pozisyonu
-            position_score = 1 - (i / len(sentences))
-            score += position_score * 2
-            
-            # Bağlaç ve geçiş kelimeleri kontrolü
-            transition_words = ['ancak', 'fakat', 'ama', 'çünkü', 'dolayısıyla', 'bu nedenle', 
-                              'sonuç olarak', 'özetle', 'kısacası', 'özellikle', 'örneğin',
-                              'bununla birlikte', 'ayrıca', 'buna ek olarak', 'dahası',
-                              'bunun yanında', 'bununla beraber', 'buna rağmen']
-            for word in transition_words:
-                if word in sentence.lower():
-                    score += 2
-            
-            sentence_scores[sentence] = score
-            
-            # Cümleleri anlam gruplarına ayır
-            if not current_group or (i > 0 and any(word in sentences[i-1].lower() for word in transition_words)):
-                if current_group:
-                    sentence_groups.append(current_group)
-                current_group = [sentence]
-            else:
-                current_group.append(sentence)
+        # Her cümle için önem skorunu ve bağlam ilişkilerini hesapla
+        sentence_scores = []
+        context_relations = []
         
-        if current_group:
-            sentence_groups.append(current_group)
+        # Cümle çiftleri arasındaki ilişkileri hesapla
+        for i in range(len(sentences)):
+            # Mevcut cümle için skor hesapla
+            current_sentence = sentences[i]
+            inputs = tokenizer(current_sentence, return_tensors="pt", padding=True, truncation=True, max_length=512)
+            
+            with torch.no_grad():
+                outputs = model(**inputs)
+                current_score = outputs.logits.squeeze().mean().item()
+            
+            # Bağlam ilişkilerini hesapla
+            context_score = 0
+            if i > 0:  # Önceki cümle ile ilişki
+                prev_sentence = sentences[i-1]
+                combined_text = prev_sentence + " [SEP] " + current_sentence
+                inputs = tokenizer(combined_text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+                
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                    context_score += outputs.logits.squeeze().mean().item()
+            
+            if i < len(sentences) - 1:  # Sonraki cümle ile ilişki
+                next_sentence = sentences[i+1]
+                combined_text = current_sentence + " [SEP] " + next_sentence
+                inputs = tokenizer(combined_text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+                
+                with torch.no_grad():
+                    outputs = model(**inputs)
+                    context_score += outputs.logits.squeeze().mean().item()
+            
+            # Bağlam skorunu normalize et
+            if i > 0 and i < len(sentences) - 1:
+                context_score /= 2
+            
+            # Toplam skoru hesapla
+            total_score = current_score * 0.6 + context_score * 0.4
+            
+            # Özel kelime ve ifadelere göre ek puanlar
+            sentence_lower = current_sentence.lower()
+            
+            # Sonuç belirten ifadeler
+            if any(word in sentence_lower for word in ['sonuç olarak', 'özetle', 'böylece', 'dolayısıyla']):
+                total_score += 0.3
+            
+            # Önemli bağlaçlar
+            if any(word in sentence_lower for word in ['çünkü', 'bu nedenle', 'bu yüzden', 'ancak', 'fakat']):
+                total_score += 0.2
+            
+            # Vurgu ifadeleri
+            if any(word in sentence_lower for word in ['önemli', 'kritik', 'dikkat', 'özellikle']):
+                total_score += 0.2
+            
+            sentence_scores.append(total_score)
+            context_relations.append(context_score)
         
-        print(f"DEBUG: Cümle grupları oluşturuldu. Grup sayısı: {len(sentence_groups)}")
+        # En yüksek skorlu cümleleri seç
+        sentence_ranking = list(enumerate(sentence_scores))
+        sentence_ranking.sort(key=lambda x: x[1], reverse=True)
         
-        # Her gruptan en önemli cümleleri seç
-        selected_sentences = []
-        for group in sentence_groups:
-            if group:
-                # Grubun en yüksek puanlı cümlesini seç
-                best_sentence = max(group, key=lambda s: sentence_scores.get(s, 0))
-                selected_sentences.append(best_sentence)
+        # Bağlam ilişkilerini koruyarak cümleleri seç
+        selected_indices = []
+        for idx, _ in sentence_ranking[:summary_length]:
+            # Eğer seçilen cümlenin öncesi veya sonrası yüksek bağlam skoruna sahipse, onları da ekle
+            if idx > 0 and context_relations[idx-1] > 0.5 and len(selected_indices) < summary_length:
+                selected_indices.append(idx-1)
+            selected_indices.append(idx)
+            if idx < len(sentences)-1 and context_relations[idx] > 0.5 and len(selected_indices) < summary_length:
+                selected_indices.append(idx+1)
         
-        # Özet uzunluğuna göre cümleleri seç
-        selected_sentences = selected_sentences[:summary_length]
-        print(f"DEBUG: Seçilen cümle sayısı: {len(selected_sentences)}")
+        # Fazla cümleleri kaldır
+        selected_indices = list(set(selected_indices))[:summary_length]
+        selected_indices.sort()  # Orijinal sırayı koru
         
-        # Cümleleri orijinal sırasına göre sırala ve bağlamı güçlendir
+        # Seçilen cümleleri birleştir ve noktalama işaretlerini düzelt
         summary = []
-        for i, sentence in enumerate(sentences):
-            if sentence in selected_sentences:
-                # Önceki cümle ile bağlantı kur
-                if i > 0 and sentences[i-1] in selected_sentences:
-                    # Bağlaç ekle
-                    if not any(word in sentence.lower() for word in transition_words):
-                        # Cümleler arasındaki mesafeye göre bağlaç seç
-                        distance = abs(sentences.index(sentence) - sentences.index(sentences[i-1]))
-                        if distance > 2:
-                            sentence = "Ayrıca, " + sentence
-                        else:
-                            sentence = "Bununla birlikte, " + sentence
+        for i, idx in enumerate(selected_indices):
+            sentence = sentences[idx].strip()
+            
+            # Noktalama işaretlerini düzelt
+            sentence = re.sub(r'\s+([.,!?;:])', r'\1', sentence)  # Noktalamadan önce boşluk kaldır
+            sentence = re.sub(r'([.,!?;:])\s*([.,!?;:])', r'\1', sentence)  # Tekrarlı noktalama işaretlerini düzelt
+            sentence = re.sub(r'([.,!?;:])\s+', r'\1 ', sentence)  # Noktalamadan sonra tek boşluk
+            
+            # Cümle sonunu düzelt
+            if not re.search(r'[.!?]$', sentence):
+                sentence += '.'
+            
+            # Cümle başını düzelt
+            sentence = sentence[0].upper() + sentence[1:]
+            
+            # Bağlaç ekle
+            if i > 0:
+                prev_sentence = sentences[selected_indices[i-1]].lower()
+                curr_sentence = sentence.lower()
                 
-                # Noktalama işaretlerini düzenle
-                sentence = sentence.strip()
+                # Cümleler arasındaki ilişkiyi analiz et
+                needs_conjunction = True
                 
-                # Noktalama işaretlerinden sonra boşluk ekle
-                sentence = re.sub(r'([.,!?])', r'\1 ', sentence)
+                # Eğer cümle zaten bir bağlaç ile başlıyorsa, yeni bağlaç ekleme
+                if any(curr_sentence.startswith(word) for word in ['ayrıca', 'dolayısıyla', 'buna rağmen', 'benzer şekilde', 'sonuç olarak']):
+                    needs_conjunction = False
                 
-                # Birden fazla boşluğu tek boşluğa indir
-                sentence = re.sub(r'\s+', ' ', sentence)
+                # Eğer önceki cümle bir sonuç belirtiyorsa
+                if any(word in prev_sentence for word in ['çünkü', 'bu nedenle', 'bu yüzden']):
+                    sentence = 'Dolayısıyla, ' + sentence
+                    needs_conjunction = False
                 
-                # Noktalama işaretlerinden önceki boşlukları kaldır
-                sentence = re.sub(r'\s+([.,!?])', r'\1', sentence)
+                # Eğer önceki cümle bir karşıt görüş belirtiyorsa
+                elif any(word in prev_sentence for word in ['ancak', 'fakat', 'ama']):
+                    sentence = 'Buna rağmen, ' + sentence
+                    needs_conjunction = False
                 
-                # Noktalama işaretlerinden sonraki fazla boşlukları kaldır
-                sentence = re.sub(r'([.,!?])\s+', r'\1 ', sentence)
+                # Eğer önceki cümle bir örnek veriyorsa
+                elif any(word in prev_sentence for word in ['örneğin', 'mesela']):
+                    sentence = 'Benzer şekilde, ' + sentence
+                    needs_conjunction = False
                 
-                # Cümle sonunda noktalama işareti yoksa nokta ekle
-                if not re.search(r'[.!?]$', sentence):
-                    sentence += '.'
+                # Eğer mevcut cümle bir sonuç belirtiyorsa
+                elif any(word in curr_sentence for word in ['sonuç', 'özetle']):
+                    sentence = 'Sonuç olarak, ' + sentence
+                    needs_conjunction = False
                 
-                # Büyük harfle başla
-                sentence = sentence[0].upper() + sentence[1:]
+                # Eğer cümleler arasında güçlü bir bağlam ilişkisi varsa
+                elif context_relations[idx] > 0.7:
+                    needs_conjunction = False
                 
-                summary.append(sentence)
+                # Eğer hala bağlaç gerekiyorsa ve cümleler arasında belirgin bir ilişki yoksa
+                elif needs_conjunction:
+                    # Cümleler arasındaki benzerliği kontrol et
+                    if context_relations[idx] < 0.3:
+                        sentence = 'Ayrıca, ' + sentence
+            
+            summary.append(sentence)
         
-        # Özeti birleştir ve temizle
+        # Özeti oluştur
         summary_text = ' '.join(summary)
         
         # Son düzenlemeler
         summary_text = re.sub(r'\s+', ' ', summary_text)  # Fazla boşlukları temizle
-        summary_text = re.sub(r'\.+', '.', summary_text)  # Birden fazla noktayı tek noktaya indir
-        summary_text = re.sub(r'\.\s*([A-Z])', r'. \1', summary_text)  # Noktadan sonra büyük harf başlat
+        summary_text = re.sub(r'\.+', '.', summary_text)  # Tekrarlı noktaları temizle
+        summary_text = re.sub(r'\.\s*([A-ZÇĞİÖŞÜ])', r'. \1', summary_text)  # Nokta ve büyük harf arasına boşluk
         summary_text = summary_text.strip()
         
-        print(f"DEBUG: Özet oluşturuldu. Özet uzunluğu: {len(summary_text)}")
+        print(f"DEBUG: BERT özeti oluşturuldu. Özet uzunluğu: {len(summary_text)}")
         return summary_text
         
     except Exception as e:
-        print(f"ERROR: Özet oluşturma hatası: {str(e)}")
+        print(f"ERROR: BERT özetleme hatası: {str(e)}")
         traceback.print_exc()
         return None
 
@@ -518,8 +560,10 @@ def upload_file():
         # Özet uzunluğunu al
         try:
             summary_length = int(request.form.get('summary_length', 50))
+            if summary_length < 10 or summary_length > 90:
+                summary_length = 50
             print(f"DEBUG: Form'dan alınan özet uzunluğu: {summary_length}")
-        except ValueError:
+        except (ValueError, TypeError):
             summary_length = 50
             print(f"DEBUG: Özet uzunluğu değeri geçersiz, varsayılan değer kullanılıyor: {summary_length}")
         

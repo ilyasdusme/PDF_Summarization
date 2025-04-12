@@ -122,4 +122,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return 'Üzgünüm, anlayamadım. Lütfen başka bir şekilde sorunuzu ifade edin.';
         }
     }
+
+    // Slider değerini güncelle
+    const slider = document.getElementById('summary_length');
+    const sliderValue = document.querySelector('.slider-value');
+
+    if (slider && sliderValue) {
+        slider.addEventListener('input', function() {
+            sliderValue.textContent = this.value + '%';
+        });
+    }
 }); 
