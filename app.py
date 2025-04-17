@@ -32,7 +32,7 @@ except LookupError:
     nltk.download('stopwords')
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 16MB max file size
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.secret_key = 'ozetly_secret_key'  # Flash mesajları için gerekli
 
@@ -359,27 +359,81 @@ def create_summary_with_t5(text, max_length=1000):
             
         print(f"DEBUG: Toplam {len(sentences)} cümle işlenecek")
         
-        # Metni birleştir ve T5 için hazırla
-        full_text = " ".join(sentences)
+        # Metni 1000 kelimelik parçalara böl
+        chunks = []
+        current_chunk = []
+        current_length = 0
         
-        # Metni tokenize et
-        inputs = tokenizer.encode("özetle: " + full_text, return_tensors="pt", max_length=1024, truncation=True)
+        for sentence in sentences:
+            words = sentence.split()
+            if current_length + len(words) > 1000:  # Parça boyutunu artırdık
+                if current_chunk:
+                    chunks.append(" ".join(current_chunk))
+                current_chunk = [sentence]
+                current_length = len(words)
+            else:
+                current_chunk.append(sentence)
+                current_length += len(words)
         
-        # Özet oluştur
-        summary_ids = model.generate(
-            inputs,
-            max_length=max_length,
-            min_length=100,
-            length_penalty=2.0,
-            num_beams=4,
-            early_stopping=True
-        )
+        if current_chunk:
+            chunks.append(" ".join(current_chunk))
         
-        # Özeti decode et
-        summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+        print(f"DEBUG: Metin {len(chunks)} parçaya bölündü")
         
-        print(f"DEBUG: T5 özeti oluşturuldu. Uzunluk: {len(summary)}")
-        return summary
+        # Her parça için özet oluştur
+        summaries = []
+        for i, chunk in enumerate(chunks):
+            print(f"DEBUG: Parça {i+1}/{len(chunks)} özetleniyor...")
+            
+            # Metni tokenize et
+            inputs = tokenizer.encode("özetle: " + chunk, return_tensors="pt", max_length=2048, truncation=True)
+            
+            # Özet oluştur
+            summary_ids = model.generate(
+                inputs,
+                max_length=min(max_length // len(chunks), 2048),  # Her parça için eşit uzunluk
+                min_length=300,  # Minimum uzunluğu artırdık
+                length_penalty=0.8,  # Length penalty'yi düşürdük
+                num_beams=8,  # Beam sayısını artırdık
+                early_stopping=True,
+                no_repeat_ngram_size=3,  # Tekrarları önle
+                temperature=0.7  # Yaratıcılığı artır
+            )
+            
+            # Özeti decode et
+            summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+            summaries.append(summary)
+            print(f"DEBUG: Parça {i+1} özetlendi. Uzunluk: {len(summary)}")
+        
+        # Özetleri birleştir ve son özeti oluştur
+        if len(summaries) > 1:
+            print("DEBUG: Özetler birleştiriliyor ve son özet oluşturuluyor...")
+            combined_summary = " ".join(summaries)
+            
+            # Son özeti oluştur
+            inputs = tokenizer.encode("özetle: " + combined_summary, return_tensors="pt", max_length=2048, truncation=True)
+            summary_ids = model.generate(
+                inputs,
+                max_length=max_length,
+                min_length=max_length // 2,  # İstenen uzunluğun en az yarısı kadar
+                length_penalty=0.8,
+                num_beams=8,
+                early_stopping=True,
+                no_repeat_ngram_size=3,
+                temperature=0.7
+            )
+            final_summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+        else:
+            final_summary = summaries[0]
+        
+        # Özeti temizle ve düzenle
+        final_summary = final_summary.strip()
+        final_summary = re.sub(r'\s+', ' ', final_summary)
+        final_summary = re.sub(r'\.+', '.', final_summary)
+        final_summary = re.sub(r'\.\s*([A-ZÇĞİÖŞÜ])', r'. \1', final_summary)
+        
+        print(f"DEBUG: T5 özeti oluşturuldu. Uzunluk: {len(final_summary)}")
+        return final_summary
         
     except Exception as e:
         print(f"ERROR: T5 özetleme hatası: {str(e)}")
@@ -448,7 +502,7 @@ def upload_file():
         # Özet uzunluğunu al
         try:
             summary_length = int(request.form.get('summary_length', 1000))
-            if summary_length < 200 or summary_length > 2000:
+            if summary_length < 500 or summary_length > 5000:
                 summary_length = 1000
             print(f"DEBUG: Özet uzunluğu: {summary_length}")
         except (ValueError, TypeError):
@@ -494,277 +548,5 @@ def upload_file():
         flash('Beklenmeyen bir hata oluştu.', 'error')
         return redirect(url_for('index'))
 
-@app.route('/download')
-def download():
-    log_visit('Özet İndirme')
-    summary_path = os.path.join(app.config['UPLOAD_FOLDER'], 'summary.txt')
-    return send_file(
-        summary_path,
-        as_attachment=True,
-        download_name='ozet.txt',
-        mimetype='text/plain'
-    )
-
-# Admin giriş sayfası
-@app.route('/admin/login', methods=['GET', 'POST'])
-def admin_login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        conn = sqlite3.connect('database.db')
-        c = conn.cursor()
-        c.execute("SELECT * FROM admin_users WHERE username = ? AND password = ?", (username, password))
-        user = c.fetchone()
-        conn.close()
-        
-        if user:
-            session['admin_logged_in'] = True
-            session['admin_username'] = username
-            flash('Başarıyla giriş yaptınız!', 'success')
-            return redirect(url_for('admin_dashboard'))
-        else:
-            flash('Geçersiz kullanıcı adı veya şifre!', 'error')
-    
-    return render_template('admin/login.html')
-
-# Admin çıkış
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('admin_logged_in', None)
-    session.pop('admin_username', None)
-    flash('Başarıyla çıkış yaptınız!', 'success')
-    return redirect(url_for('index'))
-
-# Admin paneli ana sayfası
-@app.route('/admin/dashboard')
-@admin_required
-def admin_dashboard():
-    log_visit('Admin Paneli')
-    
-    conn = sqlite3.connect('database.db')
-    c = conn.cursor()
-    
-    # Toplam PDF sayısı
-    c.execute("SELECT COUNT(*) FROM pdfs")
-    total_pdfs = c.fetchone()[0]
-    
-    # Son 24 saatteki PDF sayısı
-    c.execute("SELECT COUNT(*) FROM pdfs WHERE upload_date >= datetime('now', '-1 day')")
-    recent_pdfs = c.fetchone()[0]
-    
-    # Toplam ziyaret sayısı
-    c.execute("SELECT COUNT(*) FROM visits")
-    total_visits = c.fetchone()[0]
-    
-    # Bugünkü ziyaret sayısı
-    c.execute("SELECT COUNT(*) FROM visits WHERE date(visit_date) = date('now')")
-    today_visits = c.fetchone()[0]
-    
-    # Son yüklenen PDF'ler
-    c.execute("""
-        SELECT * FROM pdfs 
-        ORDER BY upload_date DESC 
-        LIMIT 5
-    """)
-    recent_pdf_list = []
-    for row in c.fetchall():
-        # Tarihi formatla
-        upload_date = row[3]
-        if upload_date:
-            try:
-                upload_date = datetime.strptime(upload_date, '%Y-%m-%d %H:%M:%S')
-                upload_date = upload_date.strftime('%d.%m.%Y %H:%M')
-            except:
-                upload_date = upload_date
-        recent_pdf_list.append({
-            'id': row[0],
-            'filename': row[1],
-            'original_filename': row[2],
-            'upload_date': upload_date,
-            'file_size': row[4],
-            'summary_length': row[5]
-        })
-    
-    # Sayfa ziyaret istatistikleri
-    c.execute("""
-        SELECT page_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit 
-        FROM visits 
-        GROUP BY page_name 
-        ORDER BY visit_count DESC
-    """)
-    page_stats = []
-    for row in c.fetchall():
-        # Tarihi formatla
-        last_visit = row[2]
-        if last_visit:
-            try:
-                last_visit = datetime.strptime(last_visit, '%Y-%m-%d %H:%M:%S')
-                last_visit = last_visit.strftime('%d.%m.%Y %H:%M')
-            except:
-                last_visit = last_visit
-        page_stats.append({
-            'page_name': row[0],
-            'visit_count': row[1],
-            'last_visit': last_visit
-        })
-    
-    conn.close()
-    
-    return render_template('admin/dashboard.html',
-                         total_pdfs=total_pdfs,
-                         recent_pdfs=recent_pdfs,
-                         total_visits=total_visits,
-                         today_visits=today_visits,
-                         recent_pdf_list=recent_pdf_list,
-                         page_stats=page_stats)
-
-@app.route('/admin/pdfs', methods=['GET', 'POST'])
-@admin_required
-def admin_pdfs():
-    """PDF yönetim sayfası"""
-    if request.method == 'POST':
-        # Toplu silme işlemi
-        pdf_ids = request.form.getlist('pdf_ids')
-        if pdf_ids:
-            conn = sqlite3.connect('database.db')
-            c = conn.cursor()
-            
-            # Seçilen PDF'leri sil
-            for pdf_id in pdf_ids:
-                # PDF bilgilerini al
-                c.execute("SELECT file_path FROM pdfs WHERE id = ?", (pdf_id,))
-                result = c.fetchone()
-                if result:
-                    file_path = result[0]
-                    # Dosyayı sil
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                    # Veritabanından sil
-                    c.execute("DELETE FROM pdfs WHERE id = ?", (pdf_id,))
-            
-            conn.commit()
-            conn.close()
-            flash('Seçilen PDF\'ler başarıyla silindi!', 'success')
-    
-    # PDF listesini getir
-    conn = sqlite3.connect('database.db')
-    c = conn.cursor()
-    c.execute("SELECT * FROM pdfs ORDER BY upload_date DESC")
-    pdfs = []
-    for row in c.fetchall():
-        pdf = dict(zip(['id', 'filename', 'original_filename', 'upload_date', 'file_size', 'summary_length', 'file_path'], row))
-        print(f"DEBUG: PDF ID: {pdf['id']}, Özet Uzunluğu: {pdf['summary_length']}")
-        pdfs.append(pdf)
-    conn.close()
-    
-    return render_template('admin/pdfs.html', pdfs=pdfs)
-
-# Ziyaret istatistikleri sayfası
-@app.route('/admin/visits')
-@admin_required
-def admin_visits():
-    log_visit('Ziyaret İstatistikleri')
-    
-    conn = sqlite3.connect('database.db')
-    c = conn.cursor()
-    
-    # Son 30 günlük ziyaret istatistikleri
-    c.execute("""
-        SELECT date(visit_date) as date, COUNT(*) as count 
-        FROM visits 
-        WHERE visit_date >= datetime("now", "-30 days")
-        GROUP BY date(visit_date)
-        ORDER BY date
-    """)
-    daily_stats = c.fetchall()
-    
-    dates = [row[0] for row in daily_stats]
-    visit_counts = [row[1] for row in daily_stats]
-    
-    # Sayfa ziyaret istatistikleri
-    c.execute("""
-        SELECT page_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit 
-        FROM visits 
-        GROUP BY page_name 
-        ORDER BY visit_count DESC
-    """)
-    page_stats = []
-    for row in c.fetchall():
-        # Tarihi formatla
-        last_visit = row[2]
-        if last_visit:
-            try:
-                last_visit = datetime.strptime(last_visit, '%Y-%m-%d %H:%M:%S')
-                last_visit = last_visit.strftime('%d.%m.%Y %H:%M')
-            except:
-                last_visit = last_visit
-        page_stats.append({
-            'page_name': row[0],
-            'visit_count': row[1],
-            'last_visit': last_visit
-        })
-    
-    # Son ziyaretler
-    c.execute("""
-        SELECT * FROM visits 
-        ORDER BY visit_date DESC 
-        LIMIT 10
-    """)
-    recent_visits = []
-    for row in c.fetchall():
-        # Tarihi formatla
-        visit_date = row[3]
-        if visit_date:
-            try:
-                visit_date = datetime.strptime(visit_date, '%Y-%m-%d %H:%M:%S')
-                visit_date = visit_date.strftime('%d.%m.%Y %H:%M')
-            except:
-                visit_date = visit_date
-        recent_visits.append({
-            'id': row[0],
-            'page_name': row[1],
-            'ip_address': row[2],
-            'visit_date': visit_date
-        })
-    
-    conn.close()
-    
-    return render_template('admin/visits.html',
-                         dates=dates,
-                         visit_counts=visit_counts,
-                         page_stats=page_stats,
-                         recent_visits=recent_visits)
-
-@app.route('/admin/download_pdf/<int:pdf_id>')
-@admin_required
-def download_pdf(pdf_id):
-    """PDF indirme işlemi"""
-    try:
-        conn = sqlite3.connect('database.db')
-        c = conn.cursor()
-        
-        # PDF bilgilerini al
-        c.execute("SELECT file_path, original_filename FROM pdfs WHERE id = ?", (pdf_id,))
-        result = c.fetchone()
-        conn.close()
-        
-        if result:
-            file_path, original_filename = result
-            if os.path.exists(file_path):
-                return send_file(
-                    file_path,
-                    as_attachment=True,
-                    download_name=original_filename,
-                    mimetype='application/pdf'
-                )
-        
-        flash('PDF dosyası bulunamadı!', 'error')
-        return redirect(url_for('admin_pdfs'))
-    except Exception as e:
-        print(f"PDF indirme hatası: {str(e)}")
-        flash('PDF indirilirken bir hata oluştu!', 'error')
-        return redirect(url_for('admin_pdfs'))
-
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=True)
