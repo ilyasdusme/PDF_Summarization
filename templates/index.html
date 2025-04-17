@@ -99,11 +99,11 @@
                 </div>
 
                 <div class="summary-options">
-                    <div class="slider-container">
+                    <div class="form-group">
                         <label for="summary_length">Özet Uzunluğu:</label>
-                        <input type="range" class="form-range" id="summary_length" name="summary_length" 
-                               min="10" max="90" value="50" step="5">
-                        <span class="slider-value">50%</span>
+                        <input type="range" class="form-control-range" id="summary_length" name="summary_length" 
+                               min="200" max="2000" step="100" value="1000">
+                        <small class="form-text text-muted">Özet uzunluğu: <span id="length_value">1000</span> karakter</small>
                     </div>
 
                     <button type="submit" class="submit-btn">
@@ -241,6 +241,10 @@
                 fileInput.files = files;
                 fileName.textContent = files[0].name;
             }
+
+            document.getElementById('summary_length').addEventListener('input', function() {
+                document.getElementById('length_value').textContent = this.value;
+            });
         });
     </script>
 </body>

@@ -17,8 +17,9 @@ import sqlite3
 from datetime import datetime, timedelta
 import json
 from functools import wraps
-from transformers import AutoTokenizer, BertForSequenceClassification, pipeline
+from transformers import AutoTokenizer, BertForSequenceClassification, pipeline, T5ForConditionalGeneration, T5Tokenizer
 import torch
+import gc
 
 # NLTK kütüphanesini indir
 try:
@@ -329,177 +330,61 @@ def calculate_sentence_scores(sentences):
         traceback.print_exc()
         return [1.0] * len(sentences)
 
-# BERT modelini ve tokenizer'ı yükle
-tokenizer = AutoTokenizer.from_pretrained("dbmdz/bert-base-turkish-cased")
-model = BertForSequenceClassification.from_pretrained("dbmdz/bert-base-turkish-cased")
+# Uygulama başlatıldığında modeli yükle
+print("T5 modeli yükleniyor...")
+model_name = "csebuetnlp/mT5_multilingual_XLSum"
+tokenizer = T5Tokenizer.from_pretrained(model_name)
+model = T5ForConditionalGeneration.from_pretrained(model_name)
 
-def create_summary(text, summary_length=5):
-    """Metni BERT modeli kullanarak özetleme"""
+# Modeli CPU'ya taşı (GPU yoksa)
+model = model.to('cpu')
+
+# Özetleme sırasında bellek temizliği
+import gc
+gc.collect()
+torch.cuda.empty_cache()  # GPU kullanıyorsanız
+
+print("T5 modeli başarıyla yüklendi.")
+
+def create_summary_with_t5(text, max_length=1000):
+    """T5 modeli kullanarak metni özetle"""
     try:
-        print(f"DEBUG: BERT özetleme başladı. Metin uzunluğu: {len(text)}")
+        print("DEBUG: T5 özetleme başladı")
         
         # Metni cümlelere ayır
         sentences = preprocess_text(text)
-        print(f"DEBUG: Cümle sayısı: {len(sentences)}")
-        
         if not sentences:
-            print("ERROR: Özetlenecek cümle bulunamadı")
-            return None
+            print("ERROR: Cümle ayırma başarısız")
+            return "Özet oluşturulamadı: Metin işlenemedi."
             
-        # Her cümle için önem skorunu ve bağlam ilişkilerini hesapla
-        sentence_scores = []
-        context_relations = []
+        print(f"DEBUG: Toplam {len(sentences)} cümle işlenecek")
         
-        # Cümle çiftleri arasındaki ilişkileri hesapla
-        for i in range(len(sentences)):
-            # Mevcut cümle için skor hesapla
-            current_sentence = sentences[i]
-            inputs = tokenizer(current_sentence, return_tensors="pt", padding=True, truncation=True, max_length=512)
-            
-            with torch.no_grad():
-                outputs = model(**inputs)
-                current_score = outputs.logits.squeeze().mean().item()
-            
-            # Bağlam ilişkilerini hesapla
-            context_score = 0
-            if i > 0:  # Önceki cümle ile ilişki
-                prev_sentence = sentences[i-1]
-                combined_text = prev_sentence + " [SEP] " + current_sentence
-                inputs = tokenizer(combined_text, return_tensors="pt", padding=True, truncation=True, max_length=512)
-                
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    context_score += outputs.logits.squeeze().mean().item()
-            
-            if i < len(sentences) - 1:  # Sonraki cümle ile ilişki
-                next_sentence = sentences[i+1]
-                combined_text = current_sentence + " [SEP] " + next_sentence
-                inputs = tokenizer(combined_text, return_tensors="pt", padding=True, truncation=True, max_length=512)
-                
-                with torch.no_grad():
-                    outputs = model(**inputs)
-                    context_score += outputs.logits.squeeze().mean().item()
-            
-            # Bağlam skorunu normalize et
-            if i > 0 and i < len(sentences) - 1:
-                context_score /= 2
-            
-            # Toplam skoru hesapla
-            total_score = current_score * 0.6 + context_score * 0.4
-            
-            # Özel kelime ve ifadelere göre ek puanlar
-            sentence_lower = current_sentence.lower()
-            
-            # Sonuç belirten ifadeler
-            if any(word in sentence_lower for word in ['sonuç olarak', 'özetle', 'böylece', 'dolayısıyla']):
-                total_score += 0.3
-            
-            # Önemli bağlaçlar
-            if any(word in sentence_lower for word in ['çünkü', 'bu nedenle', 'bu yüzden', 'ancak', 'fakat']):
-                total_score += 0.2
-            
-            # Vurgu ifadeleri
-            if any(word in sentence_lower for word in ['önemli', 'kritik', 'dikkat', 'özellikle']):
-                total_score += 0.2
-            
-            sentence_scores.append(total_score)
-            context_relations.append(context_score)
+        # Metni birleştir ve T5 için hazırla
+        full_text = " ".join(sentences)
         
-        # En yüksek skorlu cümleleri seç
-        sentence_ranking = list(enumerate(sentence_scores))
-        sentence_ranking.sort(key=lambda x: x[1], reverse=True)
+        # Metni tokenize et
+        inputs = tokenizer.encode("özetle: " + full_text, return_tensors="pt", max_length=1024, truncation=True)
         
-        # Bağlam ilişkilerini koruyarak cümleleri seç
-        selected_indices = []
-        for idx, _ in sentence_ranking[:summary_length]:
-            # Eğer seçilen cümlenin öncesi veya sonrası yüksek bağlam skoruna sahipse, onları da ekle
-            if idx > 0 and context_relations[idx-1] > 0.5 and len(selected_indices) < summary_length:
-                selected_indices.append(idx-1)
-            selected_indices.append(idx)
-            if idx < len(sentences)-1 and context_relations[idx] > 0.5 and len(selected_indices) < summary_length:
-                selected_indices.append(idx+1)
+        # Özet oluştur
+        summary_ids = model.generate(
+            inputs,
+            max_length=max_length,
+            min_length=100,
+            length_penalty=2.0,
+            num_beams=4,
+            early_stopping=True
+        )
         
-        # Fazla cümleleri kaldır
-        selected_indices = list(set(selected_indices))[:summary_length]
-        selected_indices.sort()  # Orijinal sırayı koru
+        # Özeti decode et
+        summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
         
-        # Seçilen cümleleri birleştir ve noktalama işaretlerini düzelt
-        summary = []
-        for i, idx in enumerate(selected_indices):
-            sentence = sentences[idx].strip()
-            
-            # Noktalama işaretlerini düzelt
-            sentence = re.sub(r'\s+([.,!?;:])', r'\1', sentence)  # Noktalamadan önce boşluk kaldır
-            sentence = re.sub(r'([.,!?;:])\s*([.,!?;:])', r'\1', sentence)  # Tekrarlı noktalama işaretlerini düzelt
-            sentence = re.sub(r'([.,!?;:])\s+', r'\1 ', sentence)  # Noktalamadan sonra tek boşluk
-            
-            # Cümle sonunu düzelt
-            if not re.search(r'[.!?]$', sentence):
-                sentence += '.'
-            
-            # Cümle başını düzelt
-            sentence = sentence[0].upper() + sentence[1:]
-            
-            # Bağlaç ekle
-            if i > 0:
-                prev_sentence = sentences[selected_indices[i-1]].lower()
-                curr_sentence = sentence.lower()
-                
-                # Cümleler arasındaki ilişkiyi analiz et
-                needs_conjunction = True
-                
-                # Eğer cümle zaten bir bağlaç ile başlıyorsa, yeni bağlaç ekleme
-                if any(curr_sentence.startswith(word) for word in ['ayrıca', 'dolayısıyla', 'buna rağmen', 'benzer şekilde', 'sonuç olarak']):
-                    needs_conjunction = False
-                
-                # Eğer önceki cümle bir sonuç belirtiyorsa
-                if any(word in prev_sentence for word in ['çünkü', 'bu nedenle', 'bu yüzden']):
-                    sentence = 'Dolayısıyla, ' + sentence
-                    needs_conjunction = False
-                
-                # Eğer önceki cümle bir karşıt görüş belirtiyorsa
-                elif any(word in prev_sentence for word in ['ancak', 'fakat', 'ama']):
-                    sentence = 'Buna rağmen, ' + sentence
-                    needs_conjunction = False
-                
-                # Eğer önceki cümle bir örnek veriyorsa
-                elif any(word in prev_sentence for word in ['örneğin', 'mesela']):
-                    sentence = 'Benzer şekilde, ' + sentence
-                    needs_conjunction = False
-                
-                # Eğer mevcut cümle bir sonuç belirtiyorsa
-                elif any(word in curr_sentence for word in ['sonuç', 'özetle']):
-                    sentence = 'Sonuç olarak, ' + sentence
-                    needs_conjunction = False
-                
-                # Eğer cümleler arasında güçlü bir bağlam ilişkisi varsa
-                elif context_relations[idx] > 0.7:
-                    needs_conjunction = False
-                
-                # Eğer hala bağlaç gerekiyorsa ve cümleler arasında belirgin bir ilişki yoksa
-                elif needs_conjunction:
-                    # Cümleler arasındaki benzerliği kontrol et
-                    if context_relations[idx] < 0.3:
-                        sentence = 'Ayrıca, ' + sentence
-            
-            summary.append(sentence)
-        
-        # Özeti oluştur
-        summary_text = ' '.join(summary)
-        
-        # Son düzenlemeler
-        summary_text = re.sub(r'\s+', ' ', summary_text)  # Fazla boşlukları temizle
-        summary_text = re.sub(r'\.+', '.', summary_text)  # Tekrarlı noktaları temizle
-        summary_text = re.sub(r'\.\s*([A-ZÇĞİÖŞÜ])', r'. \1', summary_text)  # Nokta ve büyük harf arasına boşluk
-        summary_text = summary_text.strip()
-        
-        print(f"DEBUG: BERT özeti oluşturuldu. Özet uzunluğu: {len(summary_text)}")
-        return summary_text
+        print(f"DEBUG: T5 özeti oluşturuldu. Uzunluk: {len(summary)}")
+        return summary
         
     except Exception as e:
-        print(f"ERROR: BERT özetleme hatası: {str(e)}")
+        print(f"ERROR: T5 özetleme hatası: {str(e)}")
         traceback.print_exc()
-        return None
+        return "Özet oluşturulamadı: Bir hata oluştu."
 
 # Ziyaret istatistiklerini kaydet
 def log_visit(page_name):
@@ -522,16 +407,22 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     try:
+        print("DEBUG: Dosya yükleme işlemi başladı")
+        
+        # Dosya kontrolü
         if 'file' not in request.files:
+            print("ERROR: Dosya seçilmedi")
             flash('Dosya seçilmedi.', 'error')
             return redirect(url_for('index'))
         
         file = request.files['file']
         if file.filename == '':
+            print("ERROR: Dosya adı boş")
             flash('Dosya seçilmedi.', 'error')
             return redirect(url_for('index'))
         
         if not file.filename.endswith('.pdf'):
+            print("ERROR: Geçersiz dosya formatı")
             flash('Sadece PDF dosyaları kabul edilir.', 'error')
             return redirect(url_for('index'))
         
@@ -539,87 +430,63 @@ def upload_file():
         filename = secure_filename(file.filename)
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(file_path)
-        
         print(f"DEBUG: Dosya kaydedildi: {file_path}")
         
         # PDF'den metin çıkar
         try:
             text = extract_text_from_pdf(file_path)
             print(f"DEBUG: Metin çıkarıldı, uzunluk: {len(text)}")
+            if not text:
+                raise ValueError("PDF'den metin çıkarılamadı")
         except Exception as e:
             print(f"ERROR: Metin çıkarma hatası: {str(e)}")
             flash('PDF dosyası okunamadı veya boş.', 'error')
-            os.remove(file_path)
-            return redirect(url_for('index'))
-        
-        if not text:
-            flash('PDF dosyası okunamadı veya boş.', 'error')
-            os.remove(file_path)
+            if os.path.exists(file_path):
+                os.remove(file_path)
             return redirect(url_for('index'))
         
         # Özet uzunluğunu al
         try:
-            summary_length = int(request.form.get('summary_length', 50))
-            if summary_length < 10 or summary_length > 90:
-                summary_length = 50
-            print(f"DEBUG: Form'dan alınan özet uzunluğu: {summary_length}")
+            summary_length = int(request.form.get('summary_length', 1000))
+            if summary_length < 200 or summary_length > 2000:
+                summary_length = 1000
+            print(f"DEBUG: Özet uzunluğu: {summary_length}")
         except (ValueError, TypeError):
-            summary_length = 50
+            summary_length = 1000
             print(f"DEBUG: Özet uzunluğu değeri geçersiz, varsayılan değer kullanılıyor: {summary_length}")
         
-        # Özet oluştur
+        # T5 ile özet oluştur
         try:
-            summary = create_summary(text, summary_length)
-            print(f"DEBUG: Özet oluşturuldu, uzunluk: {len(summary)}")
+            # T5 modeli ile özet oluştur
+            summary = create_summary_with_t5(text, max_length=summary_length)
+            print(f"DEBUG: T5 özeti oluşturuldu, uzunluk: {len(summary) if summary else 0}")
+            
+            # Özet kontrolü
+            if not summary:
+                summary = "Özet oluşturulamadı: Metin işlenemedi."
+            elif summary == "Özet oluşturulamadı: Metin işlenemedi." or summary == "Özet oluşturulamadı: Bir hata oluştu.":
+                raise ValueError("Özet oluşturulamadı")
+                
+            # Özeti düzenle
+            summary = summary.strip()
+            summary = re.sub(r'\s+', ' ', summary)
+            summary = re.sub(r'\.+', '.', summary)
+            summary = re.sub(r'\.\s*([A-ZÇĞİÖŞÜ])', r'. \1', summary)
+            
+            # Özeti ve dosya adını session'a kaydet
+            session['summary'] = summary
+            session['filename'] = file.filename
+            
+            # Başarılı mesajı göster
+            flash('PDF başarıyla yüklendi ve özetlendi!', 'success')
+            return redirect(url_for('index'))
+            
         except Exception as e:
             print(f"ERROR: Özet oluşturma hatası: {str(e)}")
             flash('Özet oluşturulurken bir hata oluştu.', 'error')
-            os.remove(file_path)
-            return redirect(url_for('index'))
-        
-        if not summary:
-            flash('PDF dosyasından özet oluşturulamadı.', 'error')
-            os.remove(file_path)
-            return redirect(url_for('index'))
-        
-        # PDF bilgilerini veritabanına kaydet
-        conn = None
-        try:
-            conn = sqlite3.connect('database.db')
-            c = conn.cursor()
-            
-            # Dosya boyutunu al
-            file_size = os.path.getsize(file_path)
-            
-            # Veritabanına kaydet
-            c.execute("INSERT INTO pdfs (filename, original_filename, upload_date, file_size, summary_length, file_path) VALUES (?, ?, ?, ?, ?, ?)",
-                     (filename, file.filename, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), file_size, summary_length, file_path))
-            
-            conn.commit()
-            print(f"DEBUG: Veritabanına kaydedildi. Özet uzunluğu: {summary_length}")
-        except sqlite3.Error as e:
-            print(f"ERROR: Veritabanı hatası: {str(e)}")
-            flash('Veritabanına kaydedilirken bir hata oluştu.', 'error')
             if os.path.exists(file_path):
                 os.remove(file_path)
             return redirect(url_for('index'))
-        finally:
-            if conn:
-                conn.close()
-        
-        # Özeti düzenle ve formatla
-        summary = summary.strip()
-        summary = re.sub(r'\s+', ' ', summary)
-        summary = re.sub(r'\.+', '.', summary)
-        summary = re.sub(r'\.\s*([A-Z])', r'. \1', summary)
-        
-        # Özeti ve dosya adını session'a kaydet
-        session['summary'] = summary
-        session['filename'] = file.filename
-        
-        # Başarılı mesajı göster
-        flash('PDF başarıyla yüklendi ve özetlendi!', 'success')
-        return redirect(url_for('index'))
     
     except Exception as e:
         print(f"KRİTİK HATA: {str(e)}")
