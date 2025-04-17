@@ -385,6 +385,21 @@ def create_summary_with_t5(text, max_length=1000):
         for i, chunk in enumerate(chunks):
             print(f"DEBUG: Parça {i+1}/{len(chunks)} özetleniyor...")
             
+            # Metni temizle - Geliştirilmiş temizleme
+            chunk = re.sub(r'[^\w\s.,!?;:()\-\'"]+', ' ', chunk)  # Sadece anlamlı karakterleri tut
+            chunk = re.sub(r'\s+', ' ', chunk)  # Fazla boşlukları temizle
+            chunk = re.sub(r'([.,!?;:])\s*([A-ZÇĞİÖŞÜ])', r'\1 \2', chunk)  # Noktalama sonrası boşluk ekle
+            chunk = re.sub(r'\(\s*\)', '', chunk)  # Boş parantezleri kaldır
+            chunk = re.sub(r'["\']{2,}', '"', chunk)  # Tekrarlayan tırnakları temizle
+            chunk = re.sub(r'\.{2,}', '.', chunk)  # Tekrarlayan noktaları temizle
+            
+            # Geliştirilmiş temizleme - Noktalama işaretlerini azalt
+            chunk = re.sub(r'([.,!?;:])\s*([.,!?;:])', r'\1', chunk)  # Ardışık noktalama işaretlerini temizle
+            chunk = re.sub(r'\(\s*([.,!?;:])\s*\)', r'\1', chunk)  # Parantez içindeki noktalama işaretlerini düzelt
+            chunk = re.sub(r'["\']\s*([.,!?;:])\s*["\']', r'\1', chunk)  # Tırnak içindeki noktalama işaretlerini düzelt
+            chunk = re.sub(r'([.,!?;:])\s*["\']', r'\1', chunk)  # Noktalama sonrası tırnakları temizle
+            chunk = re.sub(r'["\']\s*([.,!?;:])', r'\1', chunk)  # Tırnak sonrası noktalamayı temizle
+            
             # Metni tokenize et
             inputs = tokenizer.encode("özetle: " + chunk, return_tensors="pt", max_length=2048, truncation=True)
             
@@ -402,6 +417,22 @@ def create_summary_with_t5(text, max_length=1000):
             
             # Özeti decode et
             summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+            
+            # Özeti temizle - Geliştirilmiş temizleme
+            summary = re.sub(r'[^\w\s.,!?;:()\-\'"]+', ' ', summary)  # Sadece anlamlı karakterleri tut
+            summary = re.sub(r'\s+', ' ', summary)  # Fazla boşlukları temizle
+            summary = re.sub(r'([.,!?;:])\s*([A-ZÇĞİÖŞÜ])', r'\1 \2', summary)  # Noktalama sonrası boşluk ekle
+            summary = re.sub(r'\(\s*\)', '', summary)  # Boş parantezleri kaldır
+            summary = re.sub(r'["\']{2,}', '"', summary)  # Tekrarlayan tırnakları temizle
+            summary = re.sub(r'\.{2,}', '.', summary)  # Tekrarlayan noktaları temizle
+            
+            # Geliştirilmiş temizleme - Noktalama işaretlerini azalt
+            summary = re.sub(r'([.,!?;:])\s*([.,!?;:])', r'\1', summary)  # Ardışık noktalama işaretlerini temizle
+            summary = re.sub(r'\(\s*([.,!?;:])\s*\)', r'\1', summary)  # Parantez içindeki noktalama işaretlerini düzelt
+            summary = re.sub(r'["\']\s*([.,!?;:])\s*["\']', r'\1', summary)  # Tırnak içindeki noktalama işaretlerini düzelt
+            summary = re.sub(r'([.,!?;:])\s*["\']', r'\1', summary)  # Noktalama sonrası tırnakları temizle
+            summary = re.sub(r'["\']\s*([.,!?;:])', r'\1', summary)  # Tırnak sonrası noktalamayı temizle
+            
             summaries.append(summary)
             print(f"DEBUG: Parça {i+1} özetlendi. Uzunluk: {len(summary)}")
         
@@ -426,11 +457,28 @@ def create_summary_with_t5(text, max_length=1000):
         else:
             final_summary = summaries[0]
         
-        # Özeti temizle ve düzenle
+        # Son özeti temizle ve düzenle - Geliştirilmiş temizleme
+        final_summary = re.sub(r'[^\w\s.,!?;:()\-\'"]+', ' ', final_summary)  # Sadece anlamlı karakterleri tut
+        final_summary = re.sub(r'\s+', ' ', final_summary)  # Fazla boşlukları temizle
+        final_summary = re.sub(r'([.,!?;:])\s*([A-ZÇĞİÖŞÜ])', r'\1 \2', final_summary)  # Noktalama sonrası boşluk ekle
+        final_summary = re.sub(r'\(\s*\)', '', final_summary)  # Boş parantezleri kaldır
+        final_summary = re.sub(r'["\']{2,}', '"', final_summary)  # Tekrarlayan tırnakları temizle
+        final_summary = re.sub(r'\.{2,}', '.', final_summary)  # Tekrarlayan noktaları temizle
+        
+        # Geliştirilmiş temizleme - Noktalama işaretlerini azalt
+        final_summary = re.sub(r'([.,!?;:])\s*([.,!?;:])', r'\1', final_summary)  # Ardışık noktalama işaretlerini temizle
+        final_summary = re.sub(r'\(\s*([.,!?;:])\s*\)', r'\1', final_summary)  # Parantez içindeki noktalama işaretlerini düzelt
+        final_summary = re.sub(r'["\']\s*([.,!?;:])\s*["\']', r'\1', final_summary)  # Tırnak içindeki noktalama işaretlerini düzelt
+        final_summary = re.sub(r'([.,!?;:])\s*["\']', r'\1', final_summary)  # Noktalama sonrası tırnakları temizle
+        final_summary = re.sub(r'["\']\s*([.,!?;:])', r'\1', final_summary)  # Tırnak sonrası noktalamayı temizle
+        
+        # Ek temizleme - Tekrarlayan karakterleri azalt
+        final_summary = re.sub(r'([a-zA-ZÇĞİÖŞÜçğıöşü])\1{2,}', r'\1', final_summary)  # Tekrarlayan harfleri azalt
+        final_summary = re.sub(r'([.,!?;:])\s*([.,!?;:])', r'\1', final_summary)  # Ardışık noktalama işaretlerini temizle
+        final_summary = re.sub(r'\(\s*\)', '', final_summary)  # Boş parantezleri kaldır
+        final_summary = re.sub(r'\(\s*([.,!?;:])\s*\)', r'\1', final_summary)  # Parantez içindeki noktalama işaretlerini düzelt
+        
         final_summary = final_summary.strip()
-        final_summary = re.sub(r'\s+', ' ', final_summary)
-        final_summary = re.sub(r'\.+', '.', final_summary)
-        final_summary = re.sub(r'\.\s*([A-ZÇĞİÖŞÜ])', r'. \1', final_summary)
         
         print(f"DEBUG: T5 özeti oluşturuldu. Uzunluk: {len(final_summary)}")
         return final_summary
@@ -502,7 +550,7 @@ def upload_file():
         # Özet uzunluğunu al
         try:
             summary_length = int(request.form.get('summary_length', 1000))
-            if summary_length < 500 or summary_length > 5000:
+            if summary_length < 100 or summary_length > 5000:
                 summary_length = 1000
             print(f"DEBUG: Özet uzunluğu: {summary_length}")
         except (ValueError, TypeError):
@@ -547,6 +595,168 @@ def upload_file():
         traceback.print_exc()
         flash('Beklenmeyen bir hata oluştu.', 'error')
         return redirect(url_for('index'))
+
+@app.route('/admin/login', methods=['GET', 'POST'])
+def admin_login():
+    """Admin giriş sayfası"""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        conn = sqlite3.connect('database.db')
+        c = conn.cursor()
+        c.execute('SELECT * FROM admin_users WHERE username = ? AND password = ?', (username, password))
+        user = c.fetchone()
+        conn.close()
+        
+        if user:
+            session['admin_logged_in'] = True
+            flash('Başarıyla giriş yaptınız.', 'success')
+            return redirect(url_for('admin_dashboard'))
+        else:
+            flash('Geçersiz kullanıcı adı veya şifre.', 'error')
+    
+    return render_template('admin/login.html')
+
+@app.route('/admin/dashboard')
+@admin_required
+def admin_dashboard():
+    """Admin dashboard sayfası"""
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    
+    # Toplam PDF sayısı
+    c.execute('SELECT COUNT(*) FROM pdfs')
+    total_pdfs = c.fetchone()[0]
+    
+    # Son 24 saatteki PDF sayısı
+    c.execute('SELECT COUNT(*) FROM pdfs WHERE upload_date >= datetime("now", "-1 day")')
+    recent_pdfs = c.fetchone()[0]
+    
+    # Toplam ziyaret sayısı
+    c.execute('SELECT COUNT(*) FROM visits')
+    total_visits = c.fetchone()[0]
+    
+    # Bugünkü ziyaret sayısı
+    c.execute('SELECT COUNT(*) FROM visits WHERE visit_date >= date("now")')
+    today_visits = c.fetchone()[0]
+    
+    # Son yüklenen PDF'ler
+    c.execute('SELECT * FROM pdfs ORDER BY upload_date DESC LIMIT 5')
+    recent_pdf_list = [dict(zip(['id', 'filename', 'original_filename', 'upload_date', 'file_size', 'summary_length'], row))
+                      for row in c.fetchall()]
+    
+    # Sayfa ziyaret istatistikleri
+    c.execute('''
+        SELECT page_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit
+        FROM visits
+        GROUP BY page_name
+        ORDER BY visit_count DESC
+    ''')
+    page_stats = [dict(zip(['page_name', 'visit_count', 'last_visit'], row))
+                 for row in c.fetchall()]
+    
+    conn.close()
+    
+    return render_template('admin/dashboard.html',
+                         total_pdfs=total_pdfs,
+                         recent_pdfs=recent_pdfs,
+                         total_visits=total_visits,
+                         today_visits=today_visits,
+                         recent_pdf_list=recent_pdf_list,
+                         page_stats=page_stats)
+
+@app.route('/admin/pdfs', methods=['GET', 'POST'])
+@admin_required
+def admin_pdfs():
+    """PDF yönetim sayfası"""
+    if request.method == 'POST':
+        # Seçili PDF'leri sil
+        selected_ids = request.form.getlist('selected_pdfs')
+        if selected_ids:
+            conn = sqlite3.connect('database.db')
+            c = conn.cursor()
+            
+            # PDF dosyalarını sil
+            for pdf_id in selected_ids:
+                c.execute('SELECT file_path FROM pdfs WHERE id = ?', (pdf_id,))
+                result = c.fetchone()
+                if result:
+                    file_path = result[0]
+                    if os.path.exists(file_path):
+                        os.remove(file_path)
+            
+            # Veritabanından kayıtları sil
+            c.execute('DELETE FROM pdfs WHERE id IN ({})'.format(','.join('?' * len(selected_ids))), selected_ids)
+            conn.commit()
+            conn.close()
+            
+            flash(f'{len(selected_ids)} PDF başarıyla silindi.', 'success')
+    
+    # PDF listesini getir
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM pdfs ORDER BY upload_date DESC')
+    pdfs = [dict(zip(['id', 'filename', 'original_filename', 'upload_date', 'file_size', 'summary_length'], row))
+            for row in c.fetchall()]
+    conn.close()
+    
+    return render_template('admin/pdfs.html', pdfs=pdfs)
+
+@app.route('/admin/visits')
+@admin_required
+def admin_visits():
+    """Ziyaret istatistikleri sayfası"""
+    conn = sqlite3.connect('database.db')
+    c = conn.cursor()
+    
+    # Son 7 günün ziyaret istatistikleri
+    c.execute('''
+        SELECT date(visit_date) as date, COUNT(*) as count
+        FROM visits
+        WHERE visit_date >= date("now", "-7 days")
+        GROUP BY date(visit_date)
+        ORDER BY date
+    ''')
+    visit_stats = c.fetchall()
+    
+    dates = [stat[0] for stat in visit_stats]
+    visit_counts = [stat[1] for stat in visit_stats]
+    
+    # Sayfa bazlı istatistikler
+    c.execute('''
+        SELECT page_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit
+        FROM visits
+        GROUP BY page_name
+        ORDER BY visit_count DESC
+    ''')
+    page_stats = [dict(zip(['page_name', 'visit_count', 'last_visit'], row))
+                 for row in c.fetchall()]
+    
+    # Son ziyaretler
+    c.execute('''
+        SELECT page_name, ip_address, visit_date
+        FROM visits
+        ORDER BY visit_date DESC
+        LIMIT 10
+    ''')
+    recent_visits = [dict(zip(['page_name', 'ip_address', 'visit_date'], row))
+                    for row in c.fetchall()]
+    
+    conn.close()
+    
+    return render_template('admin/visits.html',
+                         dates=dates,
+                         visit_counts=visit_counts,
+                         page_stats=page_stats,
+                         recent_visits=recent_visits)
+
+@app.route('/admin/logout')
+def admin_logout():
+    """Admin çıkış işlemi"""
+    session.pop('admin_logged_in', None)
+    flash('Başarıyla çıkış yaptınız.', 'success')
+    return redirect(url_for('admin_login'))
 
 if __name__ == '__main__':
     app.run(debug=True)
