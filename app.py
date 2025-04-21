@@ -336,8 +336,9 @@ model_name = "csebuetnlp/mT5_multilingual_XLSum"
 tokenizer = T5Tokenizer.from_pretrained(model_name)
 model = T5ForConditionalGeneration.from_pretrained(model_name)
 
-# Modeli CPU'ya taşı (GPU yoksa)
-model = model.to('cpu')
+# Modeli GPU'ya taşı (GPU varsa)
+if torch.cuda.is_available():
+    model = model.to('cuda')
 
 # Özetleme sırasında bellek temizliği
 import gc
@@ -403,6 +404,10 @@ def create_summary_with_t5(text, max_length=1000):
             # Metni tokenize et
             inputs = tokenizer.encode("özetle: " + chunk, return_tensors="pt", max_length=2048, truncation=True)
             
+            # GPU kullanımı
+            if torch.cuda.is_available():
+                inputs = inputs.to('cuda')
+            
             # Özet oluştur
             summary_ids = model.generate(
                 inputs,
@@ -448,7 +453,7 @@ def create_summary_with_t5(text, max_length=1000):
                 max_length=max_length,
                 min_length=max_length // 2,  # İstenen uzunluğun en az yarısı kadar
                 length_penalty=0.8,
-                num_beams=8,
+                num_beams=4,
                 early_stopping=True,
                 no_repeat_ngram_size=3,
                 temperature=0.7
@@ -648,9 +653,9 @@ def admin_dashboard():
     
     # Sayfa ziyaret istatistikleri
     c.execute('''
-        SELECT page_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit
-        FROM visits
-        GROUP BY page_name
+        SELECT page_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit 
+        FROM visits 
+        GROUP BY page_name 
         ORDER BY visit_count DESC
     ''')
     page_stats = [dict(zip(['page_name', 'visit_count', 'last_visit'], row))
@@ -712,8 +717,8 @@ def admin_visits():
     
     # Son 7 günün ziyaret istatistikleri
     c.execute('''
-        SELECT date(visit_date) as date, COUNT(*) as count
-        FROM visits
+        SELECT date(visit_date) as date, COUNT(*) as count 
+        FROM visits 
         WHERE visit_date >= date("now", "-7 days")
         GROUP BY date(visit_date)
         ORDER BY date
@@ -725,9 +730,9 @@ def admin_visits():
     
     # Sayfa bazlı istatistikler
     c.execute('''
-        SELECT page_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit
-        FROM visits
-        GROUP BY page_name
+        SELECT page_name, COUNT(*) as visit_count, MAX(visit_date) as last_visit 
+        FROM visits 
+        GROUP BY page_name 
         ORDER BY visit_count DESC
     ''')
     page_stats = [dict(zip(['page_name', 'visit_count', 'last_visit'], row))
@@ -737,7 +742,7 @@ def admin_visits():
     c.execute('''
         SELECT page_name, ip_address, visit_date
         FROM visits
-        ORDER BY visit_date DESC
+        ORDER BY visit_date DESC 
         LIMIT 10
     ''')
     recent_visits = [dict(zip(['page_name', 'ip_address', 'visit_date'], row))
@@ -759,4 +764,4 @@ def admin_logout():
     return redirect(url_for('admin_login'))
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True) 
