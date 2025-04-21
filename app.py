@@ -336,10 +336,6 @@ model_name = "csebuetnlp/mT5_multilingual_XLSum"
 tokenizer = T5Tokenizer.from_pretrained(model_name)
 model = T5ForConditionalGeneration.from_pretrained(model_name)
 
-# Modeli GPU'ya taşı (GPU varsa)
-if torch.cuda.is_available():
-    model = model.to('cuda')
-
 # Özetleme sırasında bellek temizliği
 import gc
 gc.collect()
@@ -404,17 +400,13 @@ def create_summary_with_t5(text, max_length=1000):
             # Metni tokenize et
             inputs = tokenizer.encode("özetle: " + chunk, return_tensors="pt", max_length=2048, truncation=True)
             
-            # GPU kullanımı
-            if torch.cuda.is_available():
-                inputs = inputs.to('cuda')
-            
             # Özet oluştur
             summary_ids = model.generate(
                 inputs,
                 max_length=min(max_length // len(chunks), 2048),  # Her parça için eşit uzunluk
                 min_length=300,  # Minimum uzunluğu artırdık
                 length_penalty=0.8,  # Length penalty'yi düşürdük
-                num_beams=8,  # Beam sayısını artırdık
+                num_beams=4,  # Beam sayısını artırdık
                 early_stopping=True,
                 no_repeat_ngram_size=3,  # Tekrarları önle
                 temperature=0.7  # Yaratıcılığı artır
