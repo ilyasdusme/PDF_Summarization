@@ -17,7 +17,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import json
 from functools import wraps
-from transformers import AutoTokenizer, BertForSequenceClassification, pipeline, T5ForConditionalGeneration, T5Tokenizer
+from transformers import AutoTokenizer, AutoModel, BertForSequenceClassification, pipeline, T5ForConditionalGeneration, T5Tokenizer
 import torch
 import gc
 
@@ -185,7 +185,7 @@ def is_english_sentence(sentence):
     return (english_word_count / total_words) > 0.3
 
 def extract_text_from_pdf(pdf_path):
-    """PDF'den metin çıkarma ve temizleme"""
+    """PDF'den metin çıkarma ve temizleme - geliştirilmiş Türkçe karakter desteği"""
     try:
         text = ""
         with open(pdf_path, 'rb') as file:
@@ -196,6 +196,20 @@ def extract_text_from_pdf(pdf_path):
                 if page_text:
                     # Türkçe karakterleri koru ve temizle
                     page_text = page_text.replace('ﬁ', 'fi').replace('ﬂ', 'fl')
+                    
+                    # Türkçe karakterler için özel düzeltmeler
+                    page_text = re.sub(r'(\s|^)[ıiİI]\s*([^\w\s]|\b)', r'\1ı\2', page_text)  # Tek 'ı' karakteri
+                    page_text = re.sub(r'(\s|^)[şsŞS]\s*([^\w\s]|\b)', r'\1ş\2', page_text)  # Tek 'ş' karakteri
+                    page_text = re.sub(r'(\s|^)[ğgĞG]\s*([^\w\s]|\b)', r'\1ğ\2', page_text)  # Tek 'ğ' karakteri
+                    page_text = re.sub(r'(\s|^)[öoÖO]\s*([^\w\s]|\b)', r'\1ö\2', page_text)  # Tek 'ö' karakteri
+                    page_text = re.sub(r'(\s|^)[üuÜU]\s*([^\w\s]|\b)', r'\1ü\2', page_text)  # Tek 'ü' karakteri
+                    page_text = re.sub(r'(\s|^)[çcÇC]\s*([^\w\s]|\b)', r'\1ç\2', page_text)  # Tek 'ç' karakteri
+                    
+                    # Kelimelerin birleştirilmesi (parçalanmış kelimeler için)
+                    page_text = re.sub(r'(\w)\s+([ıiİIğĞüÜşŞöÖçÇ])\s+(\w)', r'\1\2\3', page_text)
+                    
+                    # Fazla boşlukları temizle
+                    page_text = re.sub(r'\s+', ' ', page_text)
                     
                     # Başlık ve alt başlıkları kaldır
                     page_text = re.sub(r'^[A-ZÇĞİÖŞÜ\s]+\n', '', page_text)  # Büyük harfli başlıklar
@@ -215,12 +229,19 @@ def extract_text_from_pdf(pdf_path):
                     page_text = re.sub(r'^\s*[A-ZÇĞİÖŞÜ\s]+\s*$', '', page_text)  # Tek satır başlıklar
                     page_text = re.sub(r'^\s*[a-zçğıöşü\s]+\s*$', '', page_text)  # Tek satır alt başlıklar
                     
-                    # İngilizce kelimeleri kaldır
-                    page_text = re.sub(r'\b[a-zA-Z]+\b', '', page_text)
+                    # Parçalanmış Türkçe kelimeleri birleştir
+                    page_text = re.sub(r'([a-zA-ZçğıöşüÇĞİÖŞÜ])\s+\'', r'\1\'', page_text)  # Kesme işaretleri
+                    page_text = re.sub(r'"\s+([a-zA-ZçğıöşüÇĞİÖŞÜ])', r'"\1', page_text)  # Tırnak işaretleri
                     
-                    # Fazla boşlukları temizle
+                    # Fazla boşlukları tekrar temizle
                     page_text = re.sub(r'\s+', ' ', page_text)
                     text += page_text + " "
+        
+        # Son temizleme işlemleri
+        # Noktalama işaretlerinin önünde boşluk olmamasını sağla
+        text = re.sub(r'\s+([.,;:!?)])', r'\1', text)
+        # Noktalama işaretlerinden sonra boşluk olmasını sağla
+        text = re.sub(r'([.,;:!?])\s*([A-ZÇĞİÖŞÜa-zçğıöşü])', r'\1 \2', text)
         
         # Minimum metin uzunluğu kontrolü
         if len(text.strip()) < 50:
@@ -232,13 +253,29 @@ def extract_text_from_pdf(pdf_path):
         raise
 
 def preprocess_text(text):
-    """Metni ön işleme ve cümlelere ayırma"""
+    """Metni ön işleme ve cümlelere ayırma - geliştirilmiş Türkçe metin desteği"""
     try:
         print(f"DEBUG: Metin ön işleme başladı. Metin uzunluğu: {len(text)}")
         
         # Metni temizle
         text = re.sub(r'\s+', ' ', text)  # Fazla boşlukları temizle
         text = text.strip()
+        
+        # Parçalanmış Türkçe metni düzelt
+        # Tek harfli heceleri birleştir
+        text = re.sub(r'(\w)\s+([ıiğüşöçĞÜŞİÖÇ])\s+', r'\1\2', text)
+        
+        # Anlamsız kısa parçaları düzelt
+        common_fragments = ['ın ', 'un ', 'ün ', 'ğı ', 'ığı ', 'liğ', 'lik', 'ler', 'lar', 'dan', 'den', 'tan', 'ten']
+        for fragment in common_fragments:
+            text = re.sub(r'\s+' + fragment + r'\s+', fragment + ' ', text)
+        
+        # Tek tırnak işaretlerini düzelt
+        text = re.sub(r'\s+\'\s+', '\'', text)
+        
+        # Noktalama işaretlerini düzelt
+        text = re.sub(r'\s+([.,;:!?])', r'\1', text)
+        text = re.sub(r'([.,;:!?])\s+', r'\1 ', text)
         
         # Türkçe cümle ayırıcı için özel işlemler
         text = re.sub(r'([.!?])\s+', r'\1\n', text)  # Noktalama işaretlerinden sonra satır sonu ekle
@@ -248,21 +285,22 @@ def preprocess_text(text):
         sentences = [s.strip() for s in text.split('\n') if s.strip()]
         print(f"DEBUG: İlk ayrıştırma sonrası cümle sayısı: {len(sentences)}")
         
-        # Cümleleri filtrele
+        # Cümleleri filtrele ve temizle
         filtered_sentences = []
         for sentence in sentences:
             # Türkçe karakter kontrolü
             if re.search(r'[ğüşıöçĞÜŞİÖÇ]', sentence):
-                # En az 3 kelime ve 15 karakter içeren cümleleri al
+                # En az 3 kelime ve 10 karakter içeren cümleleri al (eşiği düşürdük)
                 words = sentence.split()
-                if len(words) >= 3 and len(sentence) >= 15:
-                    # İngilizce kelime içeren cümleleri atla
-                    if not re.search(r'\b[a-zA-Z]+\b', sentence):
-                        # Rakam içeren cümleleri atla
-                        if not re.search(r'\d', sentence):
-                            # Başlık benzeri cümleleri atla
-                            if not re.match(r'^[A-ZÇĞİÖŞÜ\s]+$', sentence):
-                                filtered_sentences.append(sentence)
+                if len(words) >= 3 and len(sentence) >= 10:
+                    # Çok fazla tek harfli kelime içeren cümleleri atla
+                    single_char_words = sum(1 for word in words if len(word) == 1)
+                    if single_char_words / len(words) < 0.3:  # %30'dan az tek harfli kelime
+                        # Başlık benzeri cümleleri atla
+                        if not re.match(r'^[A-ZÇĞİÖŞÜ\s]+$', sentence):
+                            # Cümleyi son kez temizle
+                            clean_sentence = re.sub(r'\s+', ' ', sentence).strip()
+                            filtered_sentences.append(clean_sentence)
         
         print(f"DEBUG: Filtreleme sonrası cümle sayısı: {len(filtered_sentences)}")
         return filtered_sentences
@@ -330,18 +368,61 @@ def calculate_sentence_scores(sentences):
         traceback.print_exc()
         return [1.0] * len(sentences)
 
-# Uygulama başlatıldığında modeli yükle
-print("T5 modeli yükleniyor...")
-model_name = "csebuetnlp/mT5_multilingual_XLSum"
-tokenizer = T5Tokenizer.from_pretrained(model_name)
-model = T5ForConditionalGeneration.from_pretrained(model_name)
+def create_extractive_summary(text, max_length=1000):
+    """Çıkarımsal özetleme ile metni özetle"""
+    try:
+        print("DEBUG: Çıkarımsal özetleme başladı")
+        
+        # Metni cümlelere ayır
+        sentences = preprocess_text(text)
+        if not sentences:
+            print("ERROR: Cümle ayırma başarısız")
+            return "Özet oluşturulamadı: Metin işlenemedi."
+            
+        print(f"DEBUG: Toplam {len(sentences)} cümle işlenecek")
+        
+        # Cümle skorlarını hesapla
+        scores = calculate_sentence_scores(sentences)
+        
+        # Cümleleri skorlarına göre sırala, indeksleri koru
+        ranked_sentences = [(i, sentences[i], scores[i]) for i in range(len(sentences))]
+        ranked_sentences.sort(key=lambda x: x[2], reverse=True)
+        
+        # İstenen uzunluğa göre seçilecek cümle sayısını belirle
+        # Ortalama cümle uzunluğunu hesapla
+        avg_words_per_sentence = sum(len(s.split()) for s in sentences) / len(sentences) if sentences else 0
+        target_sentences = max(1, int(max_length / avg_words_per_sentence))
+        
+        # En yüksek skorlu cümleleri seç, ancak orijinal sıralamayı koru
+        selected_sentences = ranked_sentences[:target_sentences]
+        selected_sentences.sort(key=lambda x: x[0])  # Orijinal sıraya göre sırala
+        
+        # Seçilen cümleleri birleştir
+        summary = " ".join([s[1] for s in selected_sentences])
+        
+        # Özeti temizle
+        summary = re.sub(r'\s+', ' ', summary)  # Fazla boşlukları temizle
+        summary = re.sub(r'([.,!?;:])\s*([A-ZÇĞİÖŞÜ])', r'\1 \2', summary)  # Noktalama sonrası boşluk ekle
+        
+        print(f"DEBUG: Çıkarımsal özet oluşturuldu. Uzunluk: {len(summary.split())} kelime")
+        return summary
+        
+    except Exception as e:
+        print(f"ERROR: Çıkarımsal özetleme hatası: {str(e)}")
+        traceback.print_exc()
+        return "Özet oluşturulamadı: Bir hata oluştu."
+
+# Model yükleme işlemini değiştir
+print("BERTurk modeli yükleniyor...")
+model_name = "dbmdz/bert-base-turkish-cased"  # Türkçe için özel BERT modeli
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModel.from_pretrained(model_name)
 
 # Özetleme sırasında bellek temizliği
-import gc
 gc.collect()
 torch.cuda.empty_cache()  # GPU kullanıyorsanız
 
-print("T5 modeli başarıyla yüklendi.")
+print("BERTurk modeli başarıyla yüklendi.")
 
 def create_summary_with_t5(text, max_length=1000):
     """T5 modeli kullanarak metni özetle"""
@@ -485,6 +566,116 @@ def create_summary_with_t5(text, max_length=1000):
         traceback.print_exc()
         return "Özet oluşturulamadı: Bir hata oluştu."
 
+def create_berturk_extractive_summary(text, max_length=1000):
+    """BERTurk modelinin vektör temsillerini kullanarak çıkarımsal özetleme yap"""
+    try:
+        print("DEBUG: BERTurk çıkarımsal özetleme başladı")
+        
+        # GPU kontrolü
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model.to(device)
+        
+        # Metni cümlelere ayır
+        sentences = preprocess_text(text)
+        if not sentences:
+            print("ERROR: Cümle ayırma başarısız")
+            return "Özet oluşturulamadı: Metin işlenemedi."
+            
+        print(f"DEBUG: Toplam {len(sentences)} cümle işlenecek")
+        
+        # Her cümle için BERTurk modelini kullanarak vektör temsilleri oluştur
+        sentence_embeddings = []
+        for sentence in sentences:
+            # BERTurk tokenizer ile cümleyi kodla
+            inputs = tokenizer(sentence, return_tensors="pt", max_length=512, 
+                               truncation=True, padding="max_length").to(device)
+            
+            # Model ile cümlenin temsilini oluştur (son gizli durumu kullan)
+            with torch.no_grad():
+                outputs = model(**inputs)
+                # Son katmanın hidden state'ini al ve ortalama al
+                embedding = outputs.last_hidden_state.mean(dim=1).squeeze().cpu().numpy()
+                sentence_embeddings.append(embedding)
+        
+        # Cümle vektörleri arasındaki benzerliği hesapla
+        similarity_matrix = np.zeros((len(sentences), len(sentences)))
+        for i in range(len(sentences)):
+            for j in range(len(sentences)):
+                # Kosinüs benzerliği hesapla
+                if i == j:
+                    similarity_matrix[i][j] = 1.0
+                else:
+                    similarity_matrix[i][j] = np.dot(sentence_embeddings[i], sentence_embeddings[j]) / (
+                        np.linalg.norm(sentence_embeddings[i]) * np.linalg.norm(sentence_embeddings[j]) + 1e-8
+                    )
+        
+        # Cümle skorlarını hesapla
+        sentence_scores = []
+        for i in range(len(sentences)):
+            # Her cümlenin diğer tüm cümlelerle olan benzerliklerinin ortalaması
+            score = np.mean(similarity_matrix[i])
+            
+            # Ek skorlama faktörleri
+            # Cümlenin pozisyonu (başta ve sondaki cümlelere daha yüksek puan)
+            position_score = 0
+            if i < len(sentences) * 0.2:  # İlk %20
+                position_score = 0.2
+            elif i > len(sentences) * 0.8:  # Son %20
+                position_score = 0.1
+                
+            # Cümle uzunluğu (çok kısa ve çok uzun cümlelere ceza)
+            length_score = 0
+            word_count = len(sentences[i].split())
+            if 5 <= word_count <= 30:
+                length_score = 0.1
+            
+            # Türkçe anahtar kelimeler içeriyorsa bonus
+            keyword_score = 0
+            for keyword in KEYWORDS:
+                if keyword in sentences[i].lower():
+                    keyword_score += 0.02
+            keyword_score = min(0.2, keyword_score)  # En fazla 0.2 puan
+            
+            # Geçiş ifadeleri içeriyorsa bonus
+            transition_score = 0
+            for word in TRANSITION_WORDS:
+                if word in sentences[i].lower():
+                    transition_score += 0.01
+            transition_score = min(0.1, transition_score)  # En fazla 0.1 puan
+            
+            # Toplam skor
+            total_score = score + position_score + length_score + keyword_score + transition_score
+            sentence_scores.append(total_score)
+        
+        # Cümleleri skorlarına göre sırala, indeksleri koru
+        ranked_sentences = [(i, sentences[i], sentence_scores[i]) for i in range(len(sentences))]
+        ranked_sentences.sort(key=lambda x: x[2], reverse=True)
+        
+        # İstenen uzunluğa göre seçilecek cümle sayısını belirle
+        avg_words_per_sentence = sum(len(s.split()) for s in sentences) / len(sentences) if sentences else 0
+        target_sentences = max(1, int(max_length / avg_words_per_sentence))
+        
+        # En yüksek skorlu cümleleri seç
+        selected_sentences = ranked_sentences[:target_sentences]
+        
+        # Cümleleri orijinal sıralamalarına göre yeniden sırala
+        selected_sentences.sort(key=lambda x: x[0])
+        
+        # Seçilen cümleleri birleştir
+        summary = " ".join([s[1] for s in selected_sentences])
+        
+        # Özeti temizle
+        summary = re.sub(r'\s+', ' ', summary)  # Fazla boşlukları temizle
+        summary = re.sub(r'([.,!?;:])\s*([A-ZÇĞİÖŞÜ])', r'\1 \2', summary)  # Noktalama sonrası boşluk ekle
+        
+        print(f"DEBUG: BERTurk çıkarımsal özet oluşturuldu. Uzunluk: {len(summary.split())} kelime")
+        return summary
+        
+    except Exception as e:
+        print(f"ERROR: BERTurk çıkarımsal özetleme hatası: {str(e)}")
+        traceback.print_exc()
+        return "Özet oluşturulamadı: Bir hata oluştu."
+
 # Ziyaret istatistiklerini kaydet
 def log_visit(page_name):
     conn = sqlite3.connect('database.db')
@@ -554,11 +745,11 @@ def upload_file():
             summary_length = 1000
             print(f"DEBUG: Özet uzunluğu değeri geçersiz, varsayılan değer kullanılıyor: {summary_length}")
         
-        # T5 ile özet oluştur
+        # Özet oluştur
         try:
-            # T5 modeli ile özet oluştur
-            summary = create_summary_with_t5(text, max_length=summary_length)
-            print(f"DEBUG: T5 özeti oluşturuldu, uzunluk: {len(summary) if summary else 0}")
+            # BERTurk modelini kullanan çıkarımsal özet oluştur
+            summary = create_berturk_extractive_summary(text, max_length=summary_length)
+            print(f"DEBUG: BERTurk çıkarımsal özet oluşturuldu, uzunluk: {len(summary) if summary else 0}")
             
             # Özet kontrolü
             if not summary:
