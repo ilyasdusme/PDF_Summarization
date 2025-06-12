@@ -19,6 +19,32 @@ class ChatbotWidget {
         this.attachEventListeners();
         this.loadMessageHistory();
         this.showWelcomeMessage();
+        this.setupCategoryListeners();
+    }
+
+    setupCategoryListeners() {
+        // Kategori başlıklarına tıklama olaylarını ekle
+        const categories = document.querySelectorAll('.dropdown-item');
+        categories.forEach(category => {
+            category.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const categoryName = category.textContent.trim();
+                this.handleCategoryClick(categoryName);
+            });
+        });
+    }
+
+    handleCategoryClick(categoryName) {
+        // Chatbot'u aç
+        if (!this.isOpen) {
+            this.toggleWidget();
+        }
+        
+        // Kategori mesajını göster
+        setTimeout(() => {
+            this.addMessage(`${categoryName} kategorisi hakkında bilgi almak ister misiniz?`, 'bot');
+        }, 300);
     }
 
     createWidget() {
