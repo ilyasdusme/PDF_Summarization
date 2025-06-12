@@ -57,19 +57,11 @@
             </div>
             <ul class="nav-links">
                 <li class="nav-item dropdown">
-                    <a href="#" class="dropdown-toggle" data-bs-toggle="dropdown">
-                        Kategoriler
-                    </a>
+                    <a href="#" class="dropdown-toggle" data-bs-toggle="dropdown">Kategoriler</a>
                     <ul class="dropdown-menu">
-                        <li class="dropdown-submenu">
-                            <a class="dropdown-item dropdown-toggle" data-bs-toggle="dropdown">Yapay Zeka</a>
-                        </li>
-                        <li class="dropdown-submenu">
-                            <a class="dropdown-item dropdown-toggle" data-bs-toggle="dropdown">Blockchain</a>
-                        </li>
-                        <li class="dropdown-submenu">
-                            <a class="dropdown-item dropdown-toggle" data-bs-toggle="dropdown">Ekonomi</a>
-                        </li>
+                        <li><a class="dropdown-item" href="#">Yapay Zeka</a></li>
+                        <li><a class="dropdown-item" href="#">Blockchain</a></li>
+                        <li><a class="dropdown-item" href="#">Ekonomi</a></li>
                     </ul>
                 </li>
                 <li class="nav-item">
@@ -135,74 +127,20 @@
         </div>
     </footer>
 
-    <!-- Chatbot -->
-    <div class="chat-widget">
-        <button class="chat-widget-button">
-            <i class="fas fa-comments"></i>
-        </button>
-        <div class="chat-widget-container">
-            <div class="chat-widget-header">
-                <h3>Yardımcı</h3>
-                <button class="chat-widget-close">
-                    <i class="fas fa-times"></i>
-                </button>
-            </div>
-            <div class="chat-widget-messages" id="chat-messages"></div>
-            <div class="chat-widget-input">
-                <input type="text" id="user-input" placeholder="Mesajınızı yazın...">
-                <button id="send-button">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
-            </div>
-        </div>
-    </div>
+    
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/chatbot-widget.js') }}"></script>
     <script>
-        function openChatbot(category) {
-            // Chatbot'u aç
-            const chatbotButton = document.querySelector('.chat-widget-button');
-            if (chatbotButton) {
-                chatbotButton.click();
-                
-                // Kategori mesajını göster
-                setTimeout(() => {
-                    if (window.chatbot) {
-                        window.chatbot.addMessage(`${category} kategorisi hakkında bilgi almak ister misiniz?`, 'bot');
-                    }
-                }, 300);
-            }
-        }
 
-        document.addEventListener('DOMContentLoaded', function() {
-            // Dropdown menü tıklama olayları
-            const dropdownItems = document.querySelectorAll('.dropdown-item');
-            dropdownItems.forEach(item => {
-                item.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const category = this.textContent.trim();
-                    openChatbot(category);
-                });
-            });
-
+       
             // Bootstrap dropdown'ları başlat
             var dropdownElementList = [].slice.call(document.querySelectorAll('.dropdown-toggle'))
             var dropdownList = dropdownElementList.map(function (dropdownToggleEl) {
                 return new bootstrap.Dropdown(dropdownToggleEl)
             });
 
-            // Alt menüler için özel stil
-            document.querySelectorAll('.dropdown-submenu').forEach(function(element) {
-                const link = element.querySelector('.dropdown-toggle');
-                const submenu = element.querySelector('.dropdown-menu');
-
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    submenu.classList.toggle('show');
-                });
+        
 
                 // Alt menü dışına tıklandığında kapat
                 document.addEventListener('click', function(e) {
@@ -210,7 +148,7 @@
                         submenu.classList.remove('show');
                     }
                 });
-            });
+        
 
             // Alt menü öğelerine tıklama olayı
             document.querySelectorAll('.dropdown-submenu .dropdown-item').forEach(function(item) {
@@ -267,7 +205,7 @@
             function unhighlight(e) {
                 fileLabel.classList.remove('highlight');
             }
-        });
+     
     </script>
 </body>
 </html> 
