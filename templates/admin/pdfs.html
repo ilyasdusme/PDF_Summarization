@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF'ler - Admin Panel</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <div class="admin-sidebar">
+            <div class="admin-logo">
+                <i class="fas fa-file-pdf"></i>
+                <h2>PDF Özet Admin</h2>
+            </div>
+            
+            <div class="admin-user">
+                <i class="fas fa-user-shield"></i>
+                <span>Admin</span>
+            </div>
+            
+            <ul class="admin-menu">
+                <li>
+                    <a href="{{ url_for('admin_dashboard') }}">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li class="active">
+                    <a href="{{ url_for('admin_pdfs') }}">
+                        <i class="fas fa-file-alt"></i>
+                        <span>PDF'ler</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('admin_visits') }}">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>Ziyaret İstatistikleri</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('admin_logout') }}">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Çıkış Yap</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        
+        <!-- Content -->
+        <div class="admin-content">
+            <div class="admin-header">
+                <h1>PDF'ler</h1>
+                <div class="admin-header-actions">
+                    <a href="{{ url_for('index') }}" class="admin-btn admin-btn-secondary">
+                        <i class="fas fa-external-link-alt"></i>
+                        Siteyi Görüntüle
+                    </a>
+                </div>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <!-- PDF List -->
+            <div class="admin-section">
+                <h2>PDF'ler</h2>
+                <div class="admin-table-container">
+                    <form method="POST" action="{{ url_for('admin_pdfs') }}" onsubmit="return confirm('Seçili PDF\'leri silmek istediğinizden emin misiniz?');">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>
+                                            <input type="checkbox" id="select-all" class="form-check-input">
+                                        </th>
+                                        <th>Dosya Adı</th>
+                                        <th>Orijinal Ad</th>
+                                        <th>Yükleme Tarihi</th>
+                                        <th>Boyut</th>
+                                        <th>Özet Uzunluğu</th>
+                                        <th>İşlemler</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for pdf in pdfs %}
+                                    <tr>
+                                        <td>
+                                            <input type="checkbox" name="pdf_ids" value="{{ pdf.id }}" class="form-check-input pdf-checkbox">
+                                        </td>
+                                        <td>{{ pdf.filename }}</td>
+                                        <td>{{ pdf.original_filename }}</td>
+                                        <td>{{ pdf.upload_date }}</td>
+                                        <td>{{ pdf.file_size|filesizeformat }}</td>
+                                        <td>%{{ pdf.summary_length }}</td>
+                                        <td>
+                                            <a href="{{ url_for('download_pdf', pdf_id=pdf.id) }}" class="btn btn-sm btn-primary">
+                                                <i class="fas fa-download"></i> İndir
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <button type="submit" class="btn btn-danger">
+                                <i class="fas fa-trash"></i> Seçili PDF'leri Sil
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    document.getElementById('select-all').addEventListener('change', function() {
+        const checkboxes = document.getElementsByClassName('pdf-checkbox');
+        for (let checkbox of checkboxes) {
+            checkbox.checked = this.checked;
+        }
+    });
+    </script>
+</body>
+</html> 

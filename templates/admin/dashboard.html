@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - PDF Özet</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="admin-container">
+        <!-- Sidebar -->
+        <div class="admin-sidebar">
+            <div class="admin-logo">
+                <i class="fas fa-file-pdf"></i>
+                <h2>PDF Özet Admin</h2>
+            </div>
+            
+            <div class="admin-user">
+                <i class="fas fa-user-shield"></i>
+                <span>Admin</span>
+            </div>
+            
+            <ul class="admin-menu">
+                <li class="active">
+                    <a href="{{ url_for('admin_dashboard') }}">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('admin_pdfs') }}">
+                        <i class="fas fa-file-alt"></i>
+                        <span>PDF'ler</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('admin_visits') }}">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>Ziyaret İstatistikleri</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="{{ url_for('admin_logout') }}">
+                        <i class="fas fa-sign-out-alt"></i>
+                        <span>Çıkış Yap</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+        
+        <!-- Content -->
+        <div class="admin-content">
+            <div class="admin-header">
+                <h1>Dashboard</h1>
+                <div class="admin-header-actions">
+                    <a href="{{ url_for('index') }}" class="admin-btn admin-btn-secondary">
+                        <i class="fas fa-external-link-alt"></i>
+                        Siteyi Görüntüle
+                    </a>
+                </div>
+            </div>
+            
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+            
+            <!-- Stats Cards -->
+            <div class="admin-stats">
+                <div class="admin-stat-card">
+                    <div class="admin-stat-icon">
+                        <i class="fas fa-file-pdf"></i>
+                    </div>
+                    <div class="admin-stat-info">
+                        <h3>Toplam PDF</h3>
+                        <p>{{ total_pdfs }}</p>
+                    </div>
+                </div>
+                
+                <div class="admin-stat-card">
+                    <div class="admin-stat-icon">
+                        <i class="fas fa-clock"></i>
+                    </div>
+                    <div class="admin-stat-info">
+                        <h3>Son 24 Saat</h3>
+                        <p>{{ recent_pdfs }}</p>
+                    </div>
+                </div>
+                
+                <div class="admin-stat-card">
+                    <div class="admin-stat-icon">
+                        <i class="fas fa-users"></i>
+                    </div>
+                    <div class="admin-stat-info">
+                        <h3>Toplam Ziyaret</h3>
+                        <p>{{ total_visits }}</p>
+                    </div>
+                </div>
+                
+                <div class="admin-stat-card">
+                    <div class="admin-stat-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <div class="admin-stat-info">
+                        <h3>Bugünkü Ziyaret</h3>
+                        <p>{{ today_visits }}</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Recent PDFs -->
+            <div class="admin-section">
+                <h2>Son Yüklenen PDF'ler</h2>
+                <div class="admin-table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Dosya Adı</th>
+                                <th>Orijinal Ad</th>
+                                <th>Yükleme Tarihi</th>
+                                <th>Boyut</th>
+                                <th>Özet Uzunluğu</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for pdf in recent_pdf_list %}
+                            <tr>
+                                <td>{{ pdf.id }}</td>
+                                <td>{{ pdf.filename }}</td>
+                                <td>{{ pdf.original_filename }}</td>
+                                <td>{{ pdf.upload_date }}</td>
+                                <td>{{ pdf.file_size }} bytes</td>
+                                <td>{{ pdf.summary_length }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Page Visit Stats -->
+            <div class="admin-section">
+                <h2>Sayfa Ziyaret İstatistikleri</h2>
+                <div class="admin-table-container">
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Sayfa</th>
+                                <th>Ziyaret Sayısı</th>
+                                <th>Son Ziyaret</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for page in page_stats %}
+                            <tr>
+                                <td>{{ page.page_name }}</td>
+                                <td>{{ page.visit_count }}</td>
+                                <td>{{ page.last_visit }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html> 
