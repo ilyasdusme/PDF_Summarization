@@ -85,7 +85,19 @@ class ChatbotWidget {
             this.input.focus();
         } else {
             this.container.classList.remove('visible');
+            // Chatbot kapatıldığında sıfırla
+            this.resetChatbot();
         }
+    }
+
+    resetChatbot() {
+        // Mesaj geçmişini temizle
+        this.messageHistory = [];
+        this.messages.innerHTML = '';
+        // Karşılama mesajını göster
+        this.showWelcomeMessage();
+        // LocalStorage'dan mesaj geçmişini sil
+        localStorage.removeItem('chatbot_history');
     }
 
     showWelcomeMessage() {
