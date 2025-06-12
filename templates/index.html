@@ -62,13 +62,13 @@
                     </a>
                     <ul class="dropdown-menu">
                         <li class="dropdown-submenu">
-                            <a class="dropdown-item" href="#">Teknoloji</a>
+                            <a class="dropdown-item dropdown-toggle" data-bs-toggle="dropdown">Yapay Zeka</a>
                         </li>
                         <li class="dropdown-submenu">
-                            <a class="dropdown-item" href="#">Yapay Zeka</a>
+                            <a class="dropdown-item dropdown-toggle" data-bs-toggle="dropdown">Blockchain</a>
                         </li>
                         <li class="dropdown-submenu">
-                            <a class="dropdown-item" href="#">Ekonomi</a>
+                            <a class="dropdown-item dropdown-toggle" data-bs-toggle="dropdown">Ekonomi</a>
                         </li>
                     </ul>
                 </li>
@@ -160,7 +160,33 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="{{ url_for('static', filename='js/chatbot-widget.js') }}"></script>
     <script>
+        function openChatbot(category) {
+            // Chatbot'u aç
+            const chatbotButton = document.querySelector('.chat-widget-button');
+            if (chatbotButton) {
+                chatbotButton.click();
+                
+                // Kategori mesajını göster
+                setTimeout(() => {
+                    if (window.chatbot) {
+                        window.chatbot.addMessage(`${category} kategorisi hakkında bilgi almak ister misiniz?`, 'bot');
+                    }
+                }, 300);
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
+            // Dropdown menü tıklama olayları
+            const dropdownItems = document.querySelectorAll('.dropdown-item');
+            dropdownItems.forEach(item => {
+                item.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const category = this.textContent.trim();
+                    openChatbot(category);
+                });
+            });
+
             // Bootstrap dropdown'ları başlat
             var dropdownElementList = [].slice.call(document.querySelectorAll('.dropdown-toggle'))
             var dropdownList = dropdownElementList.map(function (dropdownToggleEl) {
@@ -169,11 +195,27 @@
 
             // Alt menüler için özel stil
             document.querySelectorAll('.dropdown-submenu').forEach(function(element) {
-                element.addEventListener('mouseenter', function() {
-                    this.querySelector('.dropdown-menu').classList.add('show');
+                const link = element.querySelector('.dropdown-toggle');
+                const submenu = element.querySelector('.dropdown-menu');
+
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    submenu.classList.toggle('show');
                 });
-                element.addEventListener('mouseleave', function() {
-                    this.querySelector('.dropdown-menu').classList.remove('show');
+
+                // Alt menü dışına tıklandığında kapat
+                document.addEventListener('click', function(e) {
+                    if (!element.contains(e.target)) {
+                        submenu.classList.remove('show');
+                    }
+                });
+            });
+
+            // Alt menü öğelerine tıklama olayı
+            document.querySelectorAll('.dropdown-submenu .dropdown-item').forEach(function(item) {
+                item.addEventListener('click', function(e) {
+                    e.stopPropagation();
                 });
             });
 
